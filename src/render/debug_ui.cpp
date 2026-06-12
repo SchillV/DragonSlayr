@@ -1,5 +1,6 @@
 #include "render/debug_ui.hpp"
 
+#include "core/cvar.hpp"
 #include "core/log.hpp"
 #include "sim/tilemap.hpp"
 
@@ -7,10 +8,17 @@
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_sdlgpu3.h>
 
+#include <SDL3/SDL_events.h>
+
 #include <algorithm>
 #include <cmath>
+#include <format>
 
 namespace ds {
+
+namespace {
+constexpr size_t kMaxConsoleLines = 400;
+} // namespace
 
 bool DebugUi::init(SDL_Window* window, SDL_GPUDevice* device, SDL_GPUTextureFormat swapchain_format) {
     IMGUI_CHECKVERSION();
@@ -32,6 +40,14 @@ bool DebugUi::init(SDL_Window* window, SDL_GPUDevice* device, SDL_GPUTextureForm
         return false;
     }
     initialized_ = true;
+
+    // Mirror the log into the console.
+    log_set_sink([this](LogLevel level, std::string_view msg) {
+        const char* tag = level == LogLevel::Error ? "[ERR] "
+                          : level == LogLevel::Warn ? "[WRN] "
+                                                    : "";
+        push_console_line(std::string(tag) + std::string(msg));
+    });
     return true;
 }
 
@@ -39,6 +55,7 @@ void DebugUi::shutdown() {
     if (!initialized_) {
         return;
     }
+    log_set_sink(nullptr);
     ImGui_ImplSDLGPU3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
@@ -48,6 +65,15 @@ void DebugUi::shutdown() {
 bool DebugUi::process_event(const SDL_Event& ev) {
     if (!initialized_) {
         return false;
+    }
+    // The console toggle works no matter who has keyboard focus.
+    if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.scancode == SDL_SCANCODE_GRAVE && !ev.key.repeat) {
+        console_open_ = !console_open_;
+        console_focus_pending_ = console_open_;
+        if (console_open_) {
+            visible = true; // opening the console implies showing the overlay
+        }
+        return true;
     }
     ImGui_ImplSDL3_ProcessEvent(&ev);
     const ImGuiIO& io = ImGui::GetIO();
@@ -80,16 +106,18 @@ void DebugUi::build(const DebugUiState& state) {
         seed_input_ = state.seed;
         seed_input_synced_ = true;
     }
-    build_performance_window();
+    build_performance_window(state);
     build_dungeon_window(state);
+    build_console_window();
 }
 
-void DebugUi::build_performance_window() {
+void DebugUi::build_performance_window(const DebugUiState& state) {
     ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(320, 130), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(320, 150), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Performance")) {
         const float ms = ImGui::GetIO().DeltaTime * 1000.0f;
         ImGui::Text("%.2f ms  (%.0f fps)", ms, ms > 0.0f ? 1000.0f / ms : 0.0f);
+        ImGui::Text("player speed: %.2f tiles/s", state.player_speed);
         const float worst = *std::max_element(std::begin(frame_history_), std::end(frame_history_));
         ImGui::PlotLines("##frametimes", frame_history_, static_cast<int>(std::size(frame_history_)),
                          frame_cursor_, nullptr, 0.0f, std::max(worst, 20.0f), ImVec2(-1, 60));
@@ -98,7 +126,7 @@ void DebugUi::build_performance_window() {
 }
 
 void DebugUi::build_dungeon_window(const DebugUiState& state) {
-    ImGui::SetNextWindowPos(ImVec2(10, 150), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(10, 170), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(320, 420), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Dungeon")) {
         ImGui::End();
@@ -144,6 +172,75 @@ void DebugUi::build_dungeon_window(const DebugUiState& state) {
 
         ImGui::Dummy(ImVec2(static_cast<float>(map.width()) * scale,
                             static_cast<float>(map.height()) * scale));
+    }
+    ImGui::End();
+}
+
+void DebugUi::push_console_line(std::string line) {
+    // Feedback can be multiline (e.g. help) — split for the scroller.
+    size_t start = 0;
+    while (start <= line.size()) {
+        const size_t nl = line.find('\n', start);
+        const std::string_view part(line.data() + start,
+                                    (nl == std::string::npos ? line.size() : nl) - start);
+        if (!part.empty()) {
+            console_lines_.emplace_back(part);
+        }
+        if (nl == std::string::npos) break;
+        start = nl + 1;
+    }
+    if (console_lines_.size() > kMaxConsoleLines) {
+        console_lines_.erase(console_lines_.begin(),
+                             console_lines_.begin() +
+                                 static_cast<long>(console_lines_.size() - kMaxConsoleLines));
+    }
+    console_scroll_pending_ = true;
+}
+
+void DebugUi::build_console_window() {
+    if (!console_open_) {
+        return;
+    }
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x, vp->WorkPos.y), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(vp->WorkSize.x, vp->WorkSize.y * 0.45f), ImGuiCond_Always);
+    if (!ImGui::Begin("Console", &console_open_,
+                      ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+                          ImGuiWindowFlags_NoCollapse)) {
+        ImGui::End();
+        return;
+    }
+
+    const float footer = ImGui::GetStyle().ItemSpacing.y + ImGui::GetFrameHeightWithSpacing();
+    if (ImGui::BeginChild("##scroll", ImVec2(0, -footer))) {
+        for (const std::string& line : console_lines_) {
+            ImGui::TextUnformatted(line.c_str());
+        }
+        if (console_scroll_pending_) {
+            ImGui::SetScrollHereY(1.0f);
+            console_scroll_pending_ = false;
+        }
+    }
+    ImGui::EndChild();
+
+    if (console_focus_pending_) {
+        ImGui::SetKeyboardFocusHere();
+        console_focus_pending_ = false;
+    }
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::InputText("##input", console_input_, sizeof(console_input_),
+                         ImGuiInputTextFlags_EnterReturnsTrue)) {
+        const std::string line = console_input_;
+        if (!line.empty()) {
+            push_console_line("> " + line);
+            std::string feedback;
+            con_execute(line, feedback);
+            if (!feedback.empty()) {
+                push_console_line(std::move(feedback));
+            }
+            console_input_[0] = '\0';
+        }
+        console_focus_pending_ = true; // keep typing
     }
     ImGui::End();
 }

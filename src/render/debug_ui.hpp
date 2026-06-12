@@ -6,6 +6,8 @@
 
 #include <cstdint>
 #include <functional>
+#include <string>
+#include <vector>
 
 struct SDL_Window;
 union SDL_Event;
@@ -20,6 +22,7 @@ struct DebugUiState {
     const TileMap* map = nullptr;
     glm::vec2 cam_pos{0.0f};
     float cam_yaw = 0.0f;
+    float player_speed = 0.0f; // tiles/s, for movement tuning
     uint64_t seed = 0;
     std::function<void(uint64_t)> regenerate; // invoked with the seed to generate
 };
@@ -46,14 +49,22 @@ public:
     bool visible = true; // F2 toggles
 
 private:
-    void build_performance_window();
+    void build_performance_window(const DebugUiState& state);
     void build_dungeon_window(const DebugUiState& state);
+    void build_console_window();
+    void push_console_line(std::string line);
 
     bool initialized_ = false;
     float frame_history_[240] = {};
     int frame_cursor_ = 0;
     uint64_t seed_input_ = 1;
     bool seed_input_synced_ = false;
+
+    bool console_open_ = false;
+    bool console_focus_pending_ = false;
+    bool console_scroll_pending_ = false;
+    std::vector<std::string> console_lines_;
+    char console_input_[256] = {};
 };
 
 } // namespace ds

@@ -1,0 +1,12 @@
+{
+  "sv.run_speed": 8.0,
+  "sv.walk_speed": 4.5,
+  "sv.accel": 70.0,
+  "sv.friction": 9.0,
+  "sv.dash_speed": 16.0,
+  "sv.dash_time": 0.25,
+  "sv.dash_cooldown": 1.2,
+  "r.fov": 75.0,
+  "r.eye_height": 0.55,
+  "in.sensitivity": 2.2
+}

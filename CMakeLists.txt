@@ -25,8 +25,13 @@ target_link_libraries(ds_glm_config INTERFACE glm::glm)
 # target's include path, so sim code that includes SDL fails to compile.
 add_library(ds_sim STATIC
   src/core/log.cpp
+  src/core/cvar.cpp
   src/sim/tilemap.cpp
   src/sim/dungeon_gen.cpp
+  src/sim/collision.cpp
+  src/sim/player.cpp
+  src/sim/world.cpp
+  src/sim/bot.cpp
 )
 target_include_directories(ds_sim PUBLIC src)
 target_link_libraries(ds_sim
@@ -39,6 +44,7 @@ add_executable(dragonslayr
   src/main.cpp
   src/game/app.cpp
   src/platform/platform.cpp
+  src/platform/input.cpp
   src/render/texture_load.cpp
   src/render/dungeon_mesh.cpp
   src/render/gpu_device.cpp
@@ -57,11 +63,13 @@ add_executable(ds_tests
   tests/test_texture.cpp
   tests/test_dungeon_gen.cpp
   tests/test_mesh.cpp
+  tests/test_collision.cpp
+  tests/test_cvar.cpp
   src/render/texture_load.cpp
   src/render/dungeon_mesh.cpp
 )
 target_link_libraries(ds_tests PRIVATE ds_warnings ds_sim ds_stb doctest::doctest)
 
 add_test(NAME unit COMMAND ds_tests WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-add_test(NAME smoke_headless COMMAND dragonslayr --headless --ticks 600 --seed 1)
+add_test(NAME smoke_headless COMMAND dragonslayr --headless --ticks 900 --seed 42 --bot walk)
 add_test(NAME smoke_print_map COMMAND dragonslayr --print-map --seed 7)

@@ -1,0 +1,11 @@
+{
+  "move_forward": "W",
+  "move_back": "S",
+  "strafe_left": "A",
+  "strafe_right": "D",
+  "walk": "Left Shift",
+  "dash": "Space",
+  "interact": "E",
+  "toggle_debug_ui": "F2",
+  "toggle_mouse_capture": "F1"
+}

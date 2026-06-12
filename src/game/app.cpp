@@ -3,14 +3,17 @@
 #include "core/log.hpp"
 #include "platform/platform.hpp"
 #include "render/debug_ui.hpp"
+#include "render/dungeon_mesh.hpp"
 #include "render/gpu_renderer.hpp"
 #include "render/texture_load.hpp"
+#include "sim/dungeon_gen.hpp"
 
 #include <SDL3/SDL.h>
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <vector>
 
 namespace ds {
@@ -18,6 +21,8 @@ namespace ds {
 namespace {
 
 constexpr double kTickDt = 1.0 / 60.0;
+constexpr float kMouseSens = 0.0022f; // radians per pixel
+constexpr float kMaxPitch = glm::radians(89.0f);
 
 using Clock = std::chrono::steady_clock;
 
@@ -25,7 +30,7 @@ double seconds_since(Clock::time_point t0) {
     return std::chrono::duration<double>(Clock::now() - t0).count();
 }
 
-// Stand-in until the real sim arrives (M2/M3).
+// Stand-in until the real sim arrives (M3).
 struct StubWorld {
     uint64_t tick_count = 0;
 
@@ -47,36 +52,21 @@ Image load_texture_or_fallback(const std::filesystem::path& path) {
     return fallback_texture();
 }
 
-void add_quad(MeshData& m, glm::vec3 a, glm::vec3 b, glm::vec3 c, glm::vec3 d, float layer,
-              float shade) {
-    const auto base = static_cast<uint32_t>(m.vertices.size());
-    m.vertices.push_back({a, {0.0f, 0.0f}, layer, shade});
-    m.vertices.push_back({b, {1.0f, 0.0f}, layer, shade});
-    m.vertices.push_back({c, {1.0f, 1.0f}, layer, shade});
-    m.vertices.push_back({d, {0.0f, 1.0f}, layer, shade});
-    m.indices.insert(m.indices.end(), {base, base + 1, base + 2, base, base + 2, base + 3});
-}
+struct FlyCam {
+    glm::vec3 pos{0.0f};
+    float yaw = 0.0f;
+    float pitch = 0.0f;
 
-// Temporary M1 scene: a floor, a short wall, proof of texture array + depth + fog.
-MeshData make_test_diorama() {
-    MeshData m;
-    constexpr float kFloorLayer = 1.0f;
-    constexpr float kWallLayer = 0.0f;
-    for (int x = -4; x < 4; ++x) {
-        for (int z = -4; z < 4; ++z) {
-            const auto fx = static_cast<float>(x);
-            const auto fz = static_cast<float>(z);
-            add_quad(m, {fx, 0.0f, fz}, {fx + 1.0f, 0.0f, fz}, {fx + 1.0f, 0.0f, fz + 1.0f},
-                     {fx, 0.0f, fz + 1.0f}, kFloorLayer, 0.85f);
-        }
+    void reset_to(glm::ivec2 spawn_tile) {
+        pos = {static_cast<float>(spawn_tile.x) + 0.5f, 0.6f, static_cast<float>(spawn_tile.y) + 0.5f};
+        yaw = 0.0f;
+        pitch = 0.0f;
     }
-    for (int i = -1; i <= 1; ++i) {
-        const auto fx = static_cast<float>(i);
-        add_quad(m, {fx, 1.0f, 0.0f}, {fx + 1.0f, 1.0f, 0.0f}, {fx + 1.0f, 0.0f, 0.0f},
-                 {fx, 0.0f, 0.0f}, kWallLayer, 1.0f);
+
+    glm::vec3 forward() const {
+        return {std::cos(yaw) * std::cos(pitch), std::sin(pitch), std::sin(yaw) * std::cos(pitch)};
     }
-    return m;
-}
+};
 
 } // namespace
 
@@ -84,8 +74,11 @@ App::App(AppConfig cfg) : cfg_(std::move(cfg)) {}
 
 int App::run() {
     if (cfg_.print_map) {
-        log_warn("--print-map is not implemented yet (arrives with dungeon generation)");
-        return 0;
+        GenParams params;
+        params.seed = cfg_.seed;
+        const DungeonResult dungeon = generate_dungeon(params);
+        std::fputs(render_ascii(dungeon).c_str(), stdout);
+        return dungeon.rooms.empty() ? 1 : 0;
     }
     Platform platform;
     if (!platform.init(cfg_.headless)) {
@@ -135,17 +128,32 @@ int App::run_windowed(Platform& platform) {
 
     const std::filesystem::path tex_dir = find_asset_root() / "textures";
     const std::vector<Image> layers = {
-        load_texture_or_fallback(tex_dir / "wall.ppm"),   // layer 0
-        load_texture_or_fallback(tex_dir / "floor.ppm"),  // layer 1
-        load_texture_or_fallback(tex_dir / "ceiling.ppm") // layer 2
+        load_texture_or_fallback(tex_dir / "wall.ppm"),   // kLayerWall
+        load_texture_or_fallback(tex_dir / "floor.ppm"),  // kLayerFloor
+        load_texture_or_fallback(tex_dir / "ceiling.ppm") // kLayerCeiling
     };
     renderer.set_world_textures(layers);
-    renderer.set_dungeon_mesh(make_test_diorama());
+
+    uint64_t seed = cfg_.seed;
+    DungeonResult dungeon;
+    FlyCam cam;
+    auto regenerate = [&](uint64_t new_seed) {
+        seed = new_seed;
+        GenParams params;
+        params.seed = seed;
+        dungeon = generate_dungeon(params);
+        renderer.set_dungeon_mesh(build_dungeon_mesh(dungeon.map));
+        cam.reset_to(dungeon.player_spawn);
+        log_info("dungeon generated: seed={} rooms={} spawns={}", seed, dungeon.rooms.size(),
+                 dungeon.enemy_spawns.size());
+    };
+    regenerate(seed);
+
+    SDL_SetWindowRelativeMouseMode(window, true);
 
     StubWorld world;
     bool running = true;
     auto prev = Clock::now();
-    const auto start = prev;
     double acc = 0.0;
 
     while (running) {
@@ -154,6 +162,9 @@ int App::run_windowed(Platform& platform) {
             const bool ui_captured = ui.process_event(ev);
             if (ev.type == SDL_EVENT_QUIT) {
                 running = false;
+            } else if (ev.type == SDL_EVENT_MOUSE_MOTION && SDL_GetWindowRelativeMouseMode(window)) {
+                cam.yaw += ev.motion.xrel * kMouseSens;
+                cam.pitch = std::clamp(cam.pitch - ev.motion.yrel * kMouseSens, -kMaxPitch, kMaxPitch);
             } else if (ev.type == SDL_EVENT_KEY_DOWN && !ui_captured) {
                 if (ev.key.key == SDLK_ESCAPE) {
                     running = false;
@@ -177,20 +188,38 @@ int App::run_windowed(Platform& platform) {
             acc -= kTickDt;
         }
 
+        // Noclip fly camera (render-rate; the real player controller lands in M3).
+        if (!ui.wants_keyboard()) {
+            const bool* keys = SDL_GetKeyboardState(nullptr);
+            const float fly_speed = keys[SDL_SCANCODE_LSHIFT] ? 20.0f : 8.0f;
+            const glm::vec3 fwd = cam.forward();
+            const glm::vec3 right = glm::normalize(glm::cross(fwd, glm::vec3(0.0f, 1.0f, 0.0f)));
+            glm::vec3 wish{0.0f};
+            if (keys[SDL_SCANCODE_W]) wish += fwd;
+            if (keys[SDL_SCANCODE_S]) wish -= fwd;
+            if (keys[SDL_SCANCODE_D]) wish += right;
+            if (keys[SDL_SCANCODE_A]) wish -= right;
+            if (keys[SDL_SCANCODE_SPACE]) wish.y += 1.0f;
+            if (keys[SDL_SCANCODE_LCTRL]) wish.y -= 1.0f;
+            if (glm::dot(wish, wish) > 0.0f) {
+                cam.pos += glm::normalize(wish) * fly_speed * static_cast<float>(frame_dt);
+            }
+        }
+
         ui.add_frame_sample(static_cast<float>(frame_dt * 1000.0));
         ui.new_frame();
-        ui.build();
+        DebugUiState ui_state;
+        ui_state.map = &dungeon.map;
+        ui_state.cam_pos = {cam.pos.x, cam.pos.z};
+        ui_state.cam_yaw = cam.yaw;
+        ui_state.seed = seed;
+        ui_state.regenerate = regenerate;
+        ui.build(ui_state);
 
-        // Orbit camera around the diorama until the player controller exists (M3).
-        const double t = seconds_since(start);
         FrameView view;
-        view.time = t;
-        const float angle = static_cast<float>(t * 0.4);
-        view.camera.pos = {3.0f * std::cos(angle), 1.4f, 3.0f * std::sin(angle)};
-        const glm::vec3 target{0.0f, 0.5f, 0.0f};
-        const glm::vec3 dir = glm::normalize(target - view.camera.pos);
-        view.camera.yaw = std::atan2(dir.z, dir.x);
-        view.camera.pitch = std::asin(dir.y);
+        view.camera.pos = cam.pos;
+        view.camera.yaw = cam.yaw;
+        view.camera.pitch = cam.pitch;
         view.camera.fov_deg = 75.0f;
         renderer.render(view);
 

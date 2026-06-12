@@ -1,12 +1,14 @@
 #include "render/debug_ui.hpp"
 
 #include "core/log.hpp"
+#include "sim/tilemap.hpp"
 
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_sdlgpu3.h>
 
 #include <algorithm>
+#include <cmath>
 
 namespace ds {
 
@@ -52,6 +54,10 @@ bool DebugUi::process_event(const SDL_Event& ev) {
     return io.WantCaptureKeyboard || io.WantCaptureMouse;
 }
 
+bool DebugUi::wants_keyboard() const {
+    return initialized_ && ImGui::GetIO().WantCaptureKeyboard;
+}
+
 void DebugUi::add_frame_sample(float frame_ms) {
     frame_history_[frame_cursor_] = frame_ms;
     frame_cursor_ = (frame_cursor_ + 1) % static_cast<int>(std::size(frame_history_));
@@ -66,10 +72,19 @@ void DebugUi::new_frame() {
     ImGui::NewFrame();
 }
 
-void DebugUi::build() {
+void DebugUi::build(const DebugUiState& state) {
     if (!initialized_ || !visible) {
         return;
     }
+    if (!seed_input_synced_) {
+        seed_input_ = state.seed;
+        seed_input_synced_ = true;
+    }
+    build_performance_window();
+    build_dungeon_window(state);
+}
+
+void DebugUi::build_performance_window() {
     ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(320, 130), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Performance")) {
@@ -82,14 +97,65 @@ void DebugUi::build() {
     ImGui::End();
 }
 
-ImDrawData* DebugUi::prepare(SDL_GPUCommandBuffer* cmd) {
-    if (!initialized_ || !visible) {
-        if (initialized_) {
-            ImGui::Render(); // keep the frame lifecycle balanced even when hidden
+void DebugUi::build_dungeon_window(const DebugUiState& state) {
+    ImGui::SetNextWindowPos(ImVec2(10, 150), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(320, 420), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Dungeon")) {
+        ImGui::End();
+        return;
+    }
+
+    ImGui::InputScalar("seed", ImGuiDataType_U64, &seed_input_);
+    ImGui::SameLine();
+    if (ImGui::Button("Regenerate") && state.regenerate) {
+        state.regenerate(seed_input_);
+    }
+    if (ImGui::Button("Next seed") && state.regenerate) {
+        ++seed_input_;
+        state.regenerate(seed_input_);
+    }
+
+    if (state.map) {
+        const TileMap& map = *state.map;
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        const ImVec2 origin = ImGui::GetCursorScreenPos();
+        const float avail = std::max(ImGui::GetContentRegionAvail().x, 64.0f);
+        const float scale =
+            std::max(1.0f, std::floor(avail / static_cast<float>(std::max(map.width(), 1))));
+
+        const ImU32 col_wall = IM_COL32(150, 110, 70, 255);
+        const ImU32 col_floor = IM_COL32(70, 70, 80, 255);
+        for (int y = 0; y < map.height(); ++y) {
+            for (int x = 0; x < map.width(); ++x) {
+                const Tile t = map.tiles.at(x, y);
+                if (t == Tile::Void) continue;
+                const ImVec2 a(origin.x + static_cast<float>(x) * scale,
+                               origin.y + static_cast<float>(y) * scale);
+                const ImVec2 b(a.x + scale, a.y + scale);
+                draw->AddRectFilled(a, b, t == Tile::Wall ? col_wall : col_floor);
+            }
         }
+        // Camera marker + facing line.
+        const ImVec2 cam(origin.x + state.cam_pos.x * scale, origin.y + state.cam_pos.y * scale);
+        const ImVec2 tip(cam.x + std::cos(state.cam_yaw) * scale * 2.0f,
+                         cam.y + std::sin(state.cam_yaw) * scale * 2.0f);
+        draw->AddLine(cam, tip, IM_COL32(255, 60, 60, 255), 2.0f);
+        draw->AddCircleFilled(cam, std::max(scale * 0.5f, 2.0f), IM_COL32(255, 60, 60, 255));
+
+        ImGui::Dummy(ImVec2(static_cast<float>(map.width()) * scale,
+                            static_cast<float>(map.height()) * scale));
+    }
+    ImGui::End();
+}
+
+ImDrawData* DebugUi::prepare(SDL_GPUCommandBuffer* cmd) {
+    if (!initialized_) {
         return nullptr;
     }
-    ImGui::Render();
+    ImGui::Render(); // keep the frame lifecycle balanced even when hidden
+    if (!visible) {
+        return nullptr;
+    }
     ImDrawData* draw_data = ImGui::GetDrawData();
     if (!draw_data || draw_data->CmdListsCount == 0) {
         return nullptr;

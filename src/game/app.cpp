@@ -1,12 +1,17 @@
 #include "game/app.hpp"
 
 #include "core/log.hpp"
+#include "platform/platform.hpp"
+#include "render/debug_ui.hpp"
+#include "render/gpu_renderer.hpp"
+#include "render/texture_load.hpp"
 
 #include <SDL3/SDL.h>
 
 #include <algorithm>
 #include <chrono>
-#include <format>
+#include <cmath>
+#include <vector>
 
 namespace ds {
 
@@ -27,6 +32,52 @@ struct StubWorld {
     void tick(float) { ++tick_count; }
 };
 
+Image fallback_texture() {
+    // 2x2 magenta/black checker so a missing file is loud but not fatal.
+    Image img;
+    img.width = img.height = 2;
+    img.pixels = {255, 0, 255, 255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 0, 255, 255};
+    return img;
+}
+
+Image load_texture_or_fallback(const std::filesystem::path& path) {
+    if (auto img = load_image(path)) {
+        return std::move(*img);
+    }
+    return fallback_texture();
+}
+
+void add_quad(MeshData& m, glm::vec3 a, glm::vec3 b, glm::vec3 c, glm::vec3 d, float layer,
+              float shade) {
+    const auto base = static_cast<uint32_t>(m.vertices.size());
+    m.vertices.push_back({a, {0.0f, 0.0f}, layer, shade});
+    m.vertices.push_back({b, {1.0f, 0.0f}, layer, shade});
+    m.vertices.push_back({c, {1.0f, 1.0f}, layer, shade});
+    m.vertices.push_back({d, {0.0f, 1.0f}, layer, shade});
+    m.indices.insert(m.indices.end(), {base, base + 1, base + 2, base, base + 2, base + 3});
+}
+
+// Temporary M1 scene: a floor, a short wall, proof of texture array + depth + fog.
+MeshData make_test_diorama() {
+    MeshData m;
+    constexpr float kFloorLayer = 1.0f;
+    constexpr float kWallLayer = 0.0f;
+    for (int x = -4; x < 4; ++x) {
+        for (int z = -4; z < 4; ++z) {
+            const auto fx = static_cast<float>(x);
+            const auto fz = static_cast<float>(z);
+            add_quad(m, {fx, 0.0f, fz}, {fx + 1.0f, 0.0f, fz}, {fx + 1.0f, 0.0f, fz + 1.0f},
+                     {fx, 0.0f, fz + 1.0f}, kFloorLayer, 0.85f);
+        }
+    }
+    for (int i = -1; i <= 1; ++i) {
+        const auto fx = static_cast<float>(i);
+        add_quad(m, {fx, 1.0f, 0.0f}, {fx + 1.0f, 1.0f, 0.0f}, {fx + 1.0f, 0.0f, 0.0f},
+                 {fx, 0.0f, 0.0f}, kWallLayer, 1.0f);
+    }
+    return m;
+}
+
 } // namespace
 
 App::App(AppConfig cfg) : cfg_(std::move(cfg)) {}
@@ -36,17 +87,12 @@ int App::run() {
         log_warn("--print-map is not implemented yet (arrives with dungeon generation)");
         return 0;
     }
-    if (cfg_.headless) {
-        SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");
-    }
-    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
-        log_error("SDL_Init failed: {}", SDL_GetError());
+    Platform platform;
+    if (!platform.init(cfg_.headless)) {
         return 1;
     }
-    log_info("SDL initialized (video driver: {})", SDL_GetCurrentVideoDriver());
-
-    const int rc = cfg_.headless ? run_headless() : run_windowed();
-    SDL_Quit();
+    const int rc = cfg_.headless ? run_headless() : run_windowed(platform);
+    platform.shutdown();
     return rc;
 }
 
@@ -65,27 +111,58 @@ int App::run_headless() {
     return 0;
 }
 
-int App::run_windowed() {
-    SDL_Window* window = SDL_CreateWindow("DragonSlayr", 1280, 720, SDL_WINDOW_RESIZABLE);
+int App::run_windowed(Platform& platform) {
+    SDL_Window* window = platform.create_window("DragonSlayr", 1280, 720);
     if (!window) {
-        log_error("SDL_CreateWindow failed: {}", SDL_GetError());
         return 1;
     }
+
+    const char* base_path = SDL_GetBasePath();
+    const std::filesystem::path shader_dir =
+        (base_path ? std::filesystem::path(base_path) : std::filesystem::path(".")) / "shaders";
+
+    GpuRenderer renderer(shader_dir);
+    if (!renderer.init(window)) {
+        return 1;
+    }
+
+    DebugUi ui;
+    if (ui.init(window, renderer.device(), renderer.swapchain_format())) {
+        renderer.set_debug_ui(&ui);
+    } else {
+        log_warn("debug UI unavailable, continuing without it");
+    }
+
+    const std::filesystem::path tex_dir = find_asset_root() / "textures";
+    const std::vector<Image> layers = {
+        load_texture_or_fallback(tex_dir / "wall.ppm"),   // layer 0
+        load_texture_or_fallback(tex_dir / "floor.ppm"),  // layer 1
+        load_texture_or_fallback(tex_dir / "ceiling.ppm") // layer 2
+    };
+    renderer.set_world_textures(layers);
+    renderer.set_dungeon_mesh(make_test_diorama());
 
     StubWorld world;
     bool running = true;
     auto prev = Clock::now();
+    const auto start = prev;
     double acc = 0.0;
-    double title_timer = 0.0;
-    double frame_ms_avg = 0.0;
 
     while (running) {
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
+            const bool ui_captured = ui.process_event(ev);
             if (ev.type == SDL_EVENT_QUIT) {
                 running = false;
-            } else if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE) {
-                running = false;
+            } else if (ev.type == SDL_EVENT_KEY_DOWN && !ui_captured) {
+                if (ev.key.key == SDLK_ESCAPE) {
+                    running = false;
+                } else if (ev.key.key == SDLK_F1) {
+                    const bool captured = SDL_GetWindowRelativeMouseMode(window);
+                    SDL_SetWindowRelativeMouseMode(window, !captured);
+                } else if (ev.key.key == SDLK_F2) {
+                    ui.visible = !ui.visible;
+                }
             }
         }
 
@@ -100,22 +177,30 @@ int App::run_windowed() {
             acc -= kTickDt;
         }
 
-        // Rendering arrives in M1; meanwhile show frame time in the title bar.
-        frame_ms_avg = frame_ms_avg * 0.95 + frame_dt * 1000.0 * 0.05;
-        title_timer += frame_dt;
-        if (title_timer >= 0.25) {
-            title_timer = 0.0;
-            const std::string title = std::format("DragonSlayr — {:.2f} ms", frame_ms_avg);
-            SDL_SetWindowTitle(window, title.c_str());
-        }
-        SDL_Delay(1); // don't spin a core; the swapchain takes over pacing in M1
+        ui.add_frame_sample(static_cast<float>(frame_dt * 1000.0));
+        ui.new_frame();
+        ui.build();
+
+        // Orbit camera around the diorama until the player controller exists (M3).
+        const double t = seconds_since(start);
+        FrameView view;
+        view.time = t;
+        const float angle = static_cast<float>(t * 0.4);
+        view.camera.pos = {3.0f * std::cos(angle), 1.4f, 3.0f * std::sin(angle)};
+        const glm::vec3 target{0.0f, 0.5f, 0.0f};
+        const glm::vec3 dir = glm::normalize(target - view.camera.pos);
+        view.camera.yaw = std::atan2(dir.z, dir.x);
+        view.camera.pitch = std::asin(dir.y);
+        view.camera.fov_deg = 75.0f;
+        renderer.render(view);
 
         if (cfg_.max_ticks >= 0 && static_cast<int64_t>(world.tick_count) >= cfg_.max_ticks) {
             running = false;
         }
     }
 
-    SDL_DestroyWindow(window);
+    ui.shutdown();
+    renderer.shutdown();
     return 0;
 }
 

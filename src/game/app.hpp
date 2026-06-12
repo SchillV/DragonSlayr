@@ -15,6 +15,8 @@ struct AppConfig {
     bool print_map = false;              // dump the generated floor as ASCII and exit
 };
 
+class Platform;
+
 class App {
 public:
     explicit App(AppConfig cfg);
@@ -22,7 +24,7 @@ public:
 
 private:
     int run_headless();
-    int run_windowed();
+    int run_windowed(Platform& platform);
 
     AppConfig cfg_;
 };

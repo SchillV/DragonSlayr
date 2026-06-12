@@ -2,7 +2,9 @@
 
 #include "core/cvar.hpp"
 #include "core/log.hpp"
+#include "sim/components.hpp"
 #include "sim/tilemap.hpp"
+#include "sim/world.hpp"
 
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
@@ -108,7 +110,65 @@ void DebugUi::build(const DebugUiState& state) {
     }
     build_performance_window(state);
     build_dungeon_window(state);
+    build_entities_window(state);
     build_console_window();
+}
+
+void DebugUi::build_entities_window(const DebugUiState& state) {
+    if (!state.world) {
+        return;
+    }
+    const World& world = *state.world;
+    ImGui::SetNextWindowPos(ImVec2(340, 10), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(430, 260), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Entities")) {
+        ImGui::End();
+        return;
+    }
+
+    const glm::vec2 player_pos = world.reg.get<Transform>(world.player).pos;
+    auto view = world.reg.view<const Enemy, const Transform, const Health>();
+    int count = 0;
+    for ([[maybe_unused]] auto e : view) {
+        ++count;
+    }
+    ImGui::Text("enemies alive: %d", count);
+
+    if (ImGui::BeginTable("##enemies", 5,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                              ImGuiTableFlags_ScrollY)) {
+        ImGui::TableSetupColumn("def");
+        ImGui::TableSetupColumn("state");
+        ImGui::TableSetupColumn("hp");
+        ImGui::TableSetupColumn("pos");
+        ImGui::TableSetupColumn("dist");
+        ImGui::TableHeadersRow();
+        for (auto [e, enemy, tr, hp] : view.each()) {
+            const char* state_name = "?";
+            switch (enemy.state) {
+            case AiState::Idle: state_name = "idle"; break;
+            case AiState::Chase: state_name = "chase"; break;
+            case AiState::Windup: state_name = "windup"; break;
+            case AiState::Recover: state_name = "recover"; break;
+            }
+            const char* def_id = enemy.def < world.content.enemies.size()
+                                     ? world.content.enemies[enemy.def].id.c_str()
+                                     : "?";
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::Text("%s", def_id);
+            ImGui::TableNextColumn();
+            ImGui::Text("%s", state_name);
+            ImGui::TableNextColumn();
+            ImGui::Text("%.0f/%.0f", hp.hp, hp.max_hp);
+            ImGui::TableNextColumn();
+            ImGui::Text("%.1f, %.1f", tr.pos.x, tr.pos.y);
+            ImGui::TableNextColumn();
+            ImGui::Text("%.1f", glm::length(player_pos - tr.pos));
+        }
+        ImGui::EndTable();
+    }
+    ImGui::End();
 }
 
 void DebugUi::build_performance_window(const DebugUiState& state) {

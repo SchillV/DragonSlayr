@@ -32,6 +32,9 @@ add_library(ds_sim STATIC
   src/sim/player.cpp
   src/sim/world.cpp
   src/sim/bot.cpp
+  src/sim/content.cpp
+  src/sim/pathfinding.cpp
+  src/sim/enemy_ai.cpp
 )
 target_include_directories(ds_sim PUBLIC src)
 target_link_libraries(ds_sim
@@ -65,6 +68,8 @@ add_executable(ds_tests
   tests/test_mesh.cpp
   tests/test_collision.cpp
   tests/test_cvar.cpp
+  tests/test_pathfinding.cpp
+  tests/test_content.cpp
   src/render/texture_load.cpp
   src/render/dungeon_mesh.cpp
 )

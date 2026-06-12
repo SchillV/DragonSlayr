@@ -16,6 +16,7 @@ public:
     bool init(SDL_Window* window) override;
     void shutdown() override;
     void set_world_textures(std::span<const Image> layers) override;
+    void set_sprite_textures(std::span<const Image> layers) override;
     void set_dungeon_mesh(const MeshData& mesh) override;
     void render(const FrameView& view) override;
 
@@ -25,7 +26,9 @@ public:
 
 private:
     bool create_world_pipeline();
+    bool create_sprite_pipeline();
     void ensure_depth_target(uint32_t w, uint32_t h);
+    void ensure_sprite_capacity(uint32_t count);
 
     std::filesystem::path shader_dir_;
     SDL_Window* window_ = nullptr;
@@ -38,6 +41,12 @@ private:
     SDL_GPUBuffer* world_vbuf_ = nullptr;
     SDL_GPUBuffer* world_ibuf_ = nullptr;
     uint32_t world_index_count_ = 0;
+
+    SDL_GPUGraphicsPipeline* sprite_pipeline_ = nullptr;
+    SDL_GPUTexture* sprite_atlas_ = nullptr;
+    SDL_GPUBuffer* sprite_instances_ = nullptr;
+    SDL_GPUTransferBuffer* sprite_transfer_ = nullptr;
+    uint32_t sprite_capacity_ = 0;
 
     SDL_GPUTexture* depth_tex_ = nullptr;
     uint32_t depth_w_ = 0;

@@ -41,6 +41,8 @@ endfunction()
 
 ds_add_shader(shaders/world.vert)
 ds_add_shader(shaders/world.frag)
+ds_add_shader(shaders/sprite.vert)
+ds_add_shader(shaders/sprite.frag)
 
 add_custom_target(shaders ALL DEPENDS ${_ds_shader_outputs})
 

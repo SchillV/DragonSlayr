@@ -1,10 +1,13 @@
 #include "sim/world.hpp"
 
 #include "core/cvar.hpp"
+#include "core/log.hpp"
 #include "sim/collision.hpp"
 #include "sim/components.hpp"
+#include "sim/enemy_ai.hpp"
 
 #include <utility>
+#include <vector>
 
 namespace ds {
 
@@ -52,13 +55,56 @@ void World::init_from_dungeon(DungeonResult d, uint64_t s) {
     reg.emplace<Body>(player, 0.3f);
     reg.emplace<Health>(player, 100.0f, 100.0f);
     reg.emplace<Player>(player);
+
+    // Every spawn point is a walker until spawn tables arrive with floors.
+    const int walker = content.find_enemy("walker");
+    if (walker >= 0) {
+        const EnemyDef& def = content.enemies[static_cast<size_t>(walker)];
+        for (const glm::ivec2 sp : dungeon.enemy_spawns) {
+            const glm::vec2 pos{static_cast<float>(sp.x) + 0.5f, static_cast<float>(sp.y) + 0.5f};
+            const entt::entity e = reg.create();
+            reg.emplace<Transform>(e, pos, 0.0f);
+            reg.emplace<PrevTransform>(e, pos, 0.0f);
+            reg.emplace<Velocity>(e);
+            reg.emplace<Body>(e, def.radius);
+            reg.emplace<Health>(e, def.hp, def.hp);
+            Enemy enemy;
+            enemy.def = static_cast<uint16_t>(walker);
+            reg.emplace<Enemy>(e, std::move(enemy));
+        }
+    } else if (!content.enemies.empty()) {
+        log_warn("no 'walker' enemy def; spawning nothing");
+    }
 }
 
 void World::tick(const PlayerCmd& cmd, float dt) {
     copy_prev_transforms(reg);
     player_apply_cmd(*this, cmd, dt);
+    if (!content.enemies.empty()) {
+        enemy_ai_think(*this, dt);
+    }
     move_and_collide(*this, dt);
+    enemy_separation(*this, dt);
     ++tick_count;
+}
+
+void World::apply_content(ContentDB new_content) {
+    std::vector<entt::entity> doomed;
+    for (auto [e, enemy] : reg.view<Enemy>().each()) {
+        const std::string& old_id = content.enemies[enemy.def].id;
+        const int idx = new_content.find_enemy(old_id);
+        if (idx < 0) {
+            doomed.push_back(e);
+        } else {
+            enemy.def = static_cast<uint16_t>(idx);
+        }
+    }
+    for (const entt::entity e : doomed) {
+        reg.destroy(e);
+    }
+    content = std::move(new_content);
+    log_info("content reloaded: {} enemy defs, {} live enemies removed", content.enemies.size(),
+             doomed.size());
 }
 
 void World::on_player_dash(glm::vec2) {

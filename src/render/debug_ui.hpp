@@ -16,10 +16,12 @@ struct ImDrawData;
 namespace ds {
 
 struct TileMap;
+struct World;
 
 // Everything the debug overlay shows or pokes, assembled fresh each frame.
 struct DebugUiState {
     const TileMap* map = nullptr;
+    const World* world = nullptr; // read-only entity inspection
     glm::vec2 cam_pos{0.0f};
     float cam_yaw = 0.0f;
     float player_speed = 0.0f; // tiles/s, for movement tuning
@@ -51,6 +53,7 @@ public:
 private:
     void build_performance_window(const DebugUiState& state);
     void build_dungeon_window(const DebugUiState& state);
+    void build_entities_window(const DebugUiState& state);
     void build_console_window();
     void push_console_line(std::string line);
 

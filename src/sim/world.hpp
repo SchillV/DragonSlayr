@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/rng.hpp"
+#include "sim/content.hpp"
 #include "sim/dungeon_gen.hpp"
 #include "sim/player.hpp"
 
@@ -15,6 +16,7 @@ namespace ds {
 struct World {
     entt::registry reg;
     DungeonResult dungeon;
+    ContentDB content;
     Rng rng;
     uint64_t seed = 0;
     uint64_t tick_count = 0;
@@ -22,8 +24,13 @@ struct World {
     entt::entity player = entt::null;
     float player_pitch = 0.0f; // view pitch from the last cmd (used for aiming)
 
+    // Call after content is loaded; spawns the player and enemies.
     void init_from_dungeon(DungeonResult d, uint64_t seed);
     void tick(const PlayerCmd& cmd, float dt);
+
+    // Hot reload: swap definitions, remapping live entities by string id.
+    // Entities whose def disappeared are destroyed.
+    void apply_content(ContentDB new_content);
 
     const TileMap& map() const { return dungeon.map; }
 

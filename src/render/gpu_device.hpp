@@ -27,6 +27,7 @@ public:
     SDL_GPUTexture* create_texture_array(std::span<const Image> layers);
     SDL_GPUTexture* create_depth_target(uint32_t w, uint32_t h);
     SDL_GPUSampler* create_nearest_sampler();
+    SDL_GPUSampler* create_clamp_sampler(); // nearest + clamp-to-edge (overlay)
 
 private:
     SDL_GPUDevice* device_ = nullptr;

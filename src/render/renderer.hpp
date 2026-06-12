@@ -37,6 +37,7 @@ public:
     // All layers must share dimensions; they become one RGBA8 texture array.
     virtual void set_world_textures(std::span<const Image> layers) = 0;
     virtual void set_sprite_textures(std::span<const Image> layers) = 0;
+    virtual void set_overlay_textures(std::span<const Image> layers) = 0;
     virtual void set_dungeon_mesh(const MeshData& mesh) = 0;
     virtual void render(const FrameView& view) = 0;
 };
@@ -47,6 +48,7 @@ public:
     void shutdown() override {}
     void set_world_textures(std::span<const Image>) override {}
     void set_sprite_textures(std::span<const Image>) override {}
+    void set_overlay_textures(std::span<const Image>) override {}
     void set_dungeon_mesh(const MeshData&) override {}
     void render(const FrameView&) override {}
 };

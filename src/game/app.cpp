@@ -2,6 +2,8 @@
 
 #include "core/cvar.hpp"
 #include "core/log.hpp"
+#include "game/hud.hpp"
+#include "platform/audio.hpp"
 #include "platform/input.hpp"
 #include "platform/platform.hpp"
 #include "render/debug_ui.hpp"
@@ -95,20 +97,58 @@ struct SpriteAtlas {
     }
 };
 
+// Soft radial glow for projectiles with no texture file (e.g. the bolt).
+Image procedural_glow() {
+    Image img;
+    img.width = img.height = 16;
+    img.pixels.resize(16 * 16 * 4);
+    for (int y = 0; y < 16; ++y) {
+        for (int x = 0; x < 16; ++x) {
+            const float dx = static_cast<float>(x) - 7.5f;
+            const float dy = static_cast<float>(y) - 7.5f;
+            const float a = std::clamp(1.0f - std::sqrt(dx * dx + dy * dy) / 7.0f, 0.0f, 1.0f);
+            const size_t i = (static_cast<size_t>(y) * 16 + x) * 4;
+            img.pixels[i + 0] = static_cast<uint8_t>(170 + 85 * a);
+            img.pixels[i + 1] = static_cast<uint8_t>(210 + 45 * a);
+            img.pixels[i + 2] = 255;
+            img.pixels[i + 3] = static_cast<uint8_t>(255.0f * a);
+        }
+    }
+    return img;
+}
+
+Image load_sprite_image(const std::filesystem::path& tex_dir, const std::string& name) {
+    const std::filesystem::path png = tex_dir / (name + ".png");
+    const std::filesystem::path ppm = tex_dir / (name + ".ppm");
+    std::error_code ec;
+    if (std::filesystem::exists(png, ec) || std::filesystem::exists(ppm, ec)) {
+        if (auto img = load_image(std::filesystem::exists(png, ec) ? png : ppm,
+                                  /*black_to_alpha=*/true)) {
+            return std::move(*img);
+        }
+    }
+    if (name == "bolt") {
+        return procedural_glow();
+    }
+    return fallback_texture();
+}
+
 SpriteAtlas rebuild_sprite_atlas(IRenderer& renderer, const ContentDB& content,
                                  const std::filesystem::path& tex_dir) {
     SpriteAtlas atlas;
     std::vector<Image> layers;
-    for (const EnemyDef& def : content.enemies) {
-        if (atlas.layer_of(def.sprite) >= 0) {
-            continue;
+    auto add = [&](const std::string& name) {
+        if (name.empty() || atlas.layer_of(name) >= 0) {
+            return;
         }
-        atlas.names.push_back(def.sprite);
-        const std::filesystem::path png = tex_dir / (def.sprite + ".png");
-        const std::filesystem::path ppm = tex_dir / (def.sprite + ".ppm");
-        std::error_code ec;
-        auto img = load_image(std::filesystem::exists(png, ec) ? png : ppm, /*black_to_alpha=*/true);
-        layers.push_back(img ? std::move(*img) : fallback_texture());
+        atlas.names.push_back(name);
+        layers.push_back(scale_nearest(load_sprite_image(tex_dir, name), 64, 64));
+    };
+    for (const EnemyDef& def : content.enemies) {
+        add(def.sprite);
+    }
+    for (const WeaponDef& def : content.weapons) {
+        add(def.sprite);
     }
     renderer.set_sprite_textures(layers);
     return atlas;
@@ -121,6 +161,28 @@ void load_content(World& world, const std::filesystem::path& data_dir) {
     } else {
         log_info("loaded {} enemy defs", world.content.enemies.size());
     }
+    error.clear();
+    if (!world.content.load_weapons(data_dir / "weapons.json", &error)) {
+        log_warn("weapon content unavailable: {}", error);
+    } else {
+        log_info("loaded {} weapon defs", world.content.weapons.size());
+    }
+}
+
+// 1x1 white + viewmodel textures, in the kOverlay* layer order the HUD assumes.
+void load_overlay_textures(IRenderer& renderer, const std::filesystem::path& tex_dir) {
+    // The viewmodel layers must match the white layer's dimensions (texture
+    // array constraint), so white is 64x64 like the legacy art.
+    Image white;
+    white.width = white.height = 64;
+    white.pixels.assign(64 * 64 * 4, 255);
+    std::vector<Image> layers;
+    layers.push_back(std::move(white));
+    for (const char* name : {"sword", "hand"}) {
+        auto img = load_image(tex_dir / (std::string(name) + ".ppm"), /*black_to_alpha=*/true);
+        layers.push_back(scale_nearest(img ? std::move(*img) : fallback_texture(), 64, 64));
+    }
+    renderer.set_overlay_textures(layers);
 }
 
 bool player_state_valid(const World& world) {
@@ -163,6 +225,54 @@ bool sim_state_valid(const World& world) {
 }
 
 } // namespace
+
+std::filesystem::path telemetry_dir(const AppConfig& cfg) {
+    if (!cfg.telemetry_dir.empty()) {
+        return cfg.telemetry_dir;
+    }
+    if (char* pref = SDL_GetPrefPath("schillv", "DragonSlayr")) {
+        std::filesystem::path dir = std::filesystem::path(pref) / "telemetry";
+        SDL_free(pref);
+        return dir;
+    }
+    return std::filesystem::path("telemetry");
+}
+
+// Headless smoke self-check: the written telemetry must parse and contain the
+// events the run was supposed to produce.
+bool validate_telemetry_file(const std::filesystem::path& path, bool expect_attacks) {
+    std::ifstream f(path);
+    if (!f) {
+        log_error("telemetry file missing: {}", path.string());
+        return false;
+    }
+    const nlohmann::json doc = nlohmann::json::parse(f, nullptr, /*allow_exceptions=*/false);
+    if (doc.is_discarded() || !doc.is_object()) {
+        log_error("telemetry file is not valid JSON: {}", path.string());
+        return false;
+    }
+    if (!doc.contains("version") || !doc.contains("events") || !doc["events"].is_array()) {
+        log_error("telemetry file missing version/events: {}", path.string());
+        return false;
+    }
+    bool has_run_start = false;
+    int attacks = 0;
+    for (const auto& ev : doc["events"]) {
+        const std::string type = ev.value("type", "");
+        has_run_start |= type == "run_start";
+        attacks += type == "player_attack" ? 1 : 0;
+    }
+    if (!has_run_start) {
+        log_error("telemetry has no run_start event");
+        return false;
+    }
+    if (expect_attacks && attacks == 0) {
+        log_error("telemetry has no player_attack events");
+        return false;
+    }
+    log_info("telemetry validated: {} events, {} attacks", doc["events"].size(), attacks);
+    return true;
+}
 
 App::App(AppConfig cfg) : cfg_(std::move(cfg)) {}
 
@@ -221,9 +331,20 @@ int App::run_headless() {
             ++enemies_chasing;
         }
     }
-    log_info("{} ticks, sim rate: {:.0f} tps, player at ({:.1f}, {:.1f}), enemies {} ({} active)",
+    log_info("{} ticks, sim rate: {:.0f} tps, player at ({:.1f}, {:.1f}), enemies {} ({} active), "
+             "score {}",
              world.tick_count, static_cast<double>(world.tick_count) / elapsed, tr.pos.x, tr.pos.y,
-             enemies_alive, enemies_chasing);
+             enemies_alive, enemies_chasing, world.score);
+
+    const std::filesystem::path written = world.telem.write_json(
+        telemetry_dir(cfg_), world.content, world.player_dead ? "death" : "complete",
+        cvar_any_cheat_touched());
+    if (written.empty()) {
+        return 1;
+    }
+    if (!validate_telemetry_file(written, cfg_.bot == "walk_attack")) {
+        return 1;
+    }
     return 0;
 }
 
@@ -264,6 +385,10 @@ int App::run_windowed(Platform& platform) {
     load_content(world, asset_root / "data");
     SpriteAtlas sprite_atlas =
         rebuild_sprite_atlas(renderer, world.content, asset_root / "textures");
+    load_overlay_textures(renderer, asset_root / "textures");
+
+    Audio audio;
+    audio.init(asset_root / "sounds");
 
     const std::filesystem::path enemies_path = asset_root / "data" / "enemies.json";
     std::error_code mtime_ec;
@@ -273,7 +398,21 @@ int App::run_windowed(Platform& platform) {
     uint64_t seed = cfg_.seed;
     float cam_yaw = 0.0f;
     float cam_pitch = 0.0f;
+    uint64_t telem_cursor = 0;
+    std::vector<TelemetryEvent> fresh_events;
+    bool was_dead = false;
+    bool run_recorded = false; // telemetry written for the current run
+
+    auto write_telemetry = [&](std::string_view outcome) {
+        if (run_recorded || world.tick_count < 60) {
+            return; // nothing meaningful happened
+        }
+        run_recorded = true;
+        world.telem.write_json(telemetry_dir(cfg_), world.content, outcome,
+                               cvar_any_cheat_touched());
+    };
     auto regenerate = [&](uint64_t new_seed) {
+        write_telemetry(world.player_dead ? "death" : "restart");
         seed = new_seed;
         GenParams params;
         params.seed = seed;
@@ -281,6 +420,9 @@ int App::run_windowed(Platform& platform) {
         renderer.set_dungeon_mesh(build_dungeon_mesh(world.map()));
         cam_yaw = 0.0f;
         cam_pitch = 0.0f;
+        telem_cursor = 0;
+        was_dead = false;
+        run_recorded = false;
         log_info("dungeon generated: seed={} rooms={} enemy spawns={}", seed,
                  world.dungeon.rooms.size(), world.dungeon.enemy_spawns.size());
     };
@@ -328,6 +470,9 @@ int App::run_windowed(Platform& platform) {
                 cam_pitch = std::clamp(cam_pitch - ev.motion.yrel * sens, -kMaxPitch, kMaxPitch);
             } else if (ev.type == SDL_EVENT_KEY_DOWN && !ui_captured && ev.key.key == SDLK_ESCAPE) {
                 running = false;
+            } else if (ev.type == SDL_EVENT_KEY_DOWN && !ui_captured && ev.key.key == SDLK_R &&
+                       world.player_dead) {
+                regenerate(seed + 1); // fresh run, fresh floor
             }
         }
 
@@ -370,6 +515,27 @@ int App::run_windowed(Platform& platform) {
             acc -= kTickDt;
         }
 
+        // Sounds ride the telemetry stream — one event system for everything.
+        world.telem.drain_since(telem_cursor, fresh_events);
+        for (const TelemetryEvent& ev : fresh_events) {
+            switch (ev.type) {
+            case EvType::PlayerAttack: audio.play("swing"); break;
+            case EvType::ProjectileFired: audio.play("bolt_fire"); break;
+            case EvType::ProjectileHit:
+                if (ev.def != 0xffff) audio.play("hit");
+                break;
+            case EvType::PlayerDamaged: audio.play("hurt"); break;
+            case EvType::EnemyKilled: audio.play("kill"); break;
+            case EvType::PlayerDash: audio.play("dash"); break;
+            default: break;
+            }
+        }
+
+        if (world.player_dead && !was_dead) {
+            was_dead = true;
+            write_telemetry("death");
+        }
+
         // Interpolated camera: position between the last two ticks, angles at
         // render rate (zero perceived mouse latency).
         const float alpha = static_cast<float>(acc / kTickDt);
@@ -388,6 +554,9 @@ int App::run_windowed(Platform& platform) {
         ui_state.player_speed = speed;
         ui_state.seed = seed;
         ui_state.regenerate = regenerate;
+        if (world.player_dead) {
+            ui_state.center_message = "YOU DIED\npress R to delve again";
+        }
         ui.build(ui_state);
 
         FrameView view;
@@ -403,8 +572,44 @@ int App::run_windowed(Platform& platform) {
                 continue;
             }
             const glm::vec2 ep = glm::mix(eprev.pos, etr.pos, alpha);
+            const HurtFlash* flash = world.reg.try_get<HurtFlash>(e);
+            view.sprites.push_back({{ep.x, 0.0f, ep.y},
+                                    def.sprite_size,
+                                    static_cast<float>(layer),
+                                    flash ? flash->t : 0.0f});
+        }
+        for (auto [e, proj, ptr, pprev] :
+             world.reg.view<const Projectile, const Transform, const PrevTransform>().each()) {
+            const WeaponDef& def = world.content.weapons[proj.weapon];
+            const int layer = sprite_atlas.layer_of(def.sprite);
+            if (layer < 0) {
+                continue;
+            }
+            const glm::vec2 pp = glm::mix(pprev.pos, ptr.pos, alpha);
+            // Bolts fly at eye height; sprite centers are feet, so drop half.
             view.sprites.push_back(
-                {{ep.x, 0.0f, ep.y}, def.sprite_size, static_cast<float>(layer), 0.0f});
+                {{pp.x, r_eye_height.value - 0.125f, pp.y}, {0.25f, 0.25f},
+                 static_cast<float>(layer), 0.0f});
+        }
+
+        // HUD on top of the world, under the debug UI.
+        {
+            const auto& pl = world.reg.get<Player>(world.player);
+            const auto& hp = world.reg.get<Health>(world.player);
+            HudState hud;
+            hud.hp = hp.hp;
+            hud.max_hp = hp.max_hp;
+            hud.swing_anim = pl.swing_anim;
+            hud.cast_anim = pl.cast_anim;
+            hud.hurt_flash = pl.hurt_flash;
+            const CVar* dash_cd = cvar_find("sv.dash_cooldown");
+            hud.dash_cooldown01 =
+                dash_cd && dash_cd->value > 0.0f ? pl.dash_cooldown / dash_cd->value : 0.0f;
+            hud.dead = world.player_dead;
+            hud.score = world.score;
+            int pw = 0, ph = 0;
+            SDL_GetWindowSizeInPixels(window, &pw, &ph);
+            build_hud(view, hud, {static_cast<float>(pw), static_cast<float>(ph)});
         }
         renderer.render(view);
 
@@ -413,7 +618,9 @@ int App::run_windowed(Platform& platform) {
         }
     }
 
+    write_telemetry(world.player_dead ? "death" : "quit");
     con_unregister_all();
+    audio.shutdown();
     ui.shutdown();
     renderer.shutdown();
     return 0;

@@ -18,4 +18,8 @@ struct Image {
 // legacy sprite convention: pure black (0,0,0) is the transparency key.
 std::optional<Image> load_image(const std::filesystem::path& path, bool black_to_alpha = false);
 
+// Nearest-neighbor rescale — texture arrays need uniform layer dimensions and
+// retro art wants hard pixels anyway.
+Image scale_nearest(const Image& src, int w, int h);
+
 } // namespace ds

@@ -3,6 +3,7 @@
 #include "core/cvar.hpp"
 #include "core/log.hpp"
 #include "sim/collision.hpp"
+#include "sim/combat.hpp"
 #include "sim/components.hpp"
 #include "sim/enemy_ai.hpp"
 
@@ -44,7 +45,17 @@ void World::init_from_dungeon(DungeonResult d, uint64_t s) {
     seed = s;
     rng = Rng(s ^ 0x9e3779b97f4a7c15ULL); // distinct stream from generation
     tick_count = 0;
+    player_dead = false;
+    score = 0;
     cvar_reset_cheat_touched();
+
+    primary_weapon = content.find_weapon("sword");
+    secondary_weapon = content.find_weapon("bolt");
+
+    telem.begin_run(s);
+    TelemetryEvent start;
+    start.type = EvType::RunStart;
+    telem.record(start);
 
     player = reg.create();
     const glm::vec2 spawn{static_cast<float>(dungeon.player_spawn.x) + 0.5f,
@@ -70,6 +81,7 @@ void World::init_from_dungeon(DungeonResult d, uint64_t s) {
             reg.emplace<Health>(e, def.hp, def.hp);
             Enemy enemy;
             enemy.def = static_cast<uint16_t>(walker);
+            enemy.spawn_tick = 0;
             reg.emplace<Enemy>(e, std::move(enemy));
         }
     } else if (!content.enemies.empty()) {
@@ -79,12 +91,31 @@ void World::init_from_dungeon(DungeonResult d, uint64_t s) {
 
 void World::tick(const PlayerCmd& cmd, float dt) {
     copy_prev_transforms(reg);
-    player_apply_cmd(*this, cmd, dt);
-    if (!content.enemies.empty()) {
-        enemy_ai_think(*this, dt);
+    if (!player_dead) {
+        player_apply_cmd(*this, cmd, dt);
+        player_combat(*this, cmd, dt);
+        if (!content.enemies.empty()) {
+            enemy_ai_think(*this, dt);
+        }
+        move_and_collide(*this, dt);
+        enemy_separation(*this, dt);
+        projectiles_update(*this, dt);
+
+        if (tick_count % 15 == 0) { // 4 Hz movement sample for the boss brain
+            const auto& tr = reg.get<Transform>(player);
+            const auto& vel = reg.get<Velocity>(player);
+            TelemetryEvent ev;
+            ev.tick = static_cast<uint32_t>(tick_count);
+            ev.type = EvType::PlayerMoveSample;
+            ev.x = tr.pos.x;
+            ev.y = tr.pos.y;
+            ev.yaw = tr.yaw;
+            ev.a = vel.v.x;
+            ev.b = vel.v.y;
+            telem.record(ev);
+        }
     }
-    move_and_collide(*this, dt);
-    enemy_separation(*this, dt);
+    cleanup_dead(*this, dt);
     ++tick_count;
 }
 
@@ -107,8 +138,17 @@ void World::apply_content(ContentDB new_content) {
              doomed.size());
 }
 
-void World::on_player_dash(glm::vec2) {
-    // Telemetry recorder attaches here in M5.
+void World::on_player_dash(glm::vec2 dir) {
+    const auto& tr = reg.get<Transform>(player);
+    TelemetryEvent ev;
+    ev.tick = static_cast<uint32_t>(tick_count);
+    ev.type = EvType::PlayerDash;
+    ev.x = tr.pos.x;
+    ev.y = tr.pos.y;
+    ev.yaw = tr.yaw;
+    ev.a = dir.x;
+    ev.b = dir.y;
+    telem.record(ev);
 }
 
 } // namespace ds

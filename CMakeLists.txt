@@ -35,6 +35,8 @@ add_library(ds_sim STATIC
   src/sim/content.cpp
   src/sim/pathfinding.cpp
   src/sim/enemy_ai.cpp
+  src/sim/combat.cpp
+  src/sim/telemetry.cpp
 )
 target_include_directories(ds_sim PUBLIC src)
 target_link_libraries(ds_sim
@@ -46,15 +48,20 @@ target_link_libraries(ds_sim
 add_executable(dragonslayr
   src/main.cpp
   src/game/app.cpp
+  src/game/hud.cpp
   src/platform/platform.cpp
   src/platform/input.cpp
+  src/platform/audio.cpp
   src/render/texture_load.cpp
   src/render/dungeon_mesh.cpp
   src/render/gpu_device.cpp
   src/render/gpu_renderer.cpp
   src/render/debug_ui.cpp
 )
-target_link_libraries(dragonslayr PRIVATE ds_warnings ds_sim SDL3::SDL3 ds_imgui ds_stb)
+target_link_libraries(dragonslayr PRIVATE ds_warnings ds_sim SDL3::SDL3 ds_imgui ds_stb ds_miniaudio)
+if(UNIX AND NOT APPLE)
+  target_link_libraries(dragonslayr PRIVATE ${CMAKE_DL_LIBS} m pthread) # miniaudio backends
+endif()
 add_dependencies(dragonslayr shaders)
 
 enable_testing()
@@ -70,11 +77,16 @@ add_executable(ds_tests
   tests/test_cvar.cpp
   tests/test_pathfinding.cpp
   tests/test_content.cpp
+  tests/test_telemetry.cpp
+  tests/test_combat.cpp
   src/render/texture_load.cpp
   src/render/dungeon_mesh.cpp
 )
 target_link_libraries(ds_tests PRIVATE ds_warnings ds_sim ds_stb doctest::doctest)
 
 add_test(NAME unit COMMAND ds_tests WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-add_test(NAME smoke_headless COMMAND dragonslayr --headless --ticks 900 --seed 42 --bot walk)
+add_test(NAME smoke_headless
+         COMMAND dragonslayr --headless --ticks 1800 --seed 42 --bot walk_attack
+                 --telemetry-dir ${CMAKE_BINARY_DIR}/telemetry
+         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 add_test(NAME smoke_print_map COMMAND dragonslayr --print-map --seed 7)

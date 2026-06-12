@@ -114,11 +114,58 @@ bool parse_enemy(const std::string& id, const json& obj, EnemyDef& out, std::str
     return true;
 }
 
+bool parse_weapon(const std::string& id, const json& obj, WeaponDef& out, std::string* error) {
+    const std::string path = "weapons." + id;
+    if (!obj.is_object()) {
+        if (error) {
+            *error = std::format("{}: expected an object", path);
+        }
+        return false;
+    }
+    out.id = id;
+    out.name = id;
+    if (!read_string(obj, path, "name", out.name, error)) return false;
+
+    std::string type;
+    if (!read_string(obj, path, "type", type, error, /*required=*/true)) return false;
+    if (type == "melee") {
+        out.type = WeaponDef::Type::Melee;
+    } else if (type == "projectile") {
+        out.type = WeaponDef::Type::Projectile;
+    } else {
+        if (error) {
+            *error = std::format("{}.type: must be 'melee' or 'projectile'", path);
+        }
+        return false;
+    }
+    if (!read_float(obj, path, "damage", out.damage, error, /*required=*/true)) return false;
+    if (!read_float(obj, path, "cooldown_s", out.cooldown_s, error)) return false;
+    if (!read_float(obj, path, "range", out.range, error)) return false;
+    if (!read_float(obj, path, "arc_deg", out.arc_deg, error)) return false;
+    if (!read_float(obj, path, "swing_s", out.swing_s, error)) return false;
+    if (!read_float(obj, path, "speed", out.speed, error)) return false;
+    if (!read_float(obj, path, "radius", out.radius, error)) return false;
+    if (!read_float(obj, path, "ttl_s", out.ttl_s, error)) return false;
+    if (!read_string(obj, path, "sprite", out.sprite, error)) return false;
+    if (!read_string(obj, path, "viewmodel", out.viewmodel, error)) return false;
+    if (!read_string(obj, path, "sound", out.sound, error)) return false;
+    return true;
+}
+
 } // namespace
 
 int ContentDB::find_enemy(std::string_view id) const {
     for (size_t i = 0; i < enemies.size(); ++i) {
         if (enemies[i].id == id) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+int ContentDB::find_weapon(std::string_view id) const {
+    for (size_t i = 0; i < weapons.size(); ++i) {
+        if (weapons[i].id == id) {
             return static_cast<int>(i);
         }
     }
@@ -156,6 +203,39 @@ bool ContentDB::load_enemies(const std::filesystem::path& path, std::string* err
     std::ostringstream ss;
     ss << f.rdbuf();
     return load_enemies_from_string(ss.str(), error);
+}
+
+bool ContentDB::load_weapons_from_string(std::string_view json_text, std::string* error) {
+    const json doc = json::parse(json_text, nullptr, /*allow_exceptions=*/false);
+    if (doc.is_discarded() || !doc.is_object()) {
+        if (error) {
+            *error = "weapons: not a valid JSON object";
+        }
+        return false;
+    }
+    std::vector<WeaponDef> parsed;
+    for (const auto& [id, value] : doc.items()) {
+        WeaponDef def;
+        if (!parse_weapon(id, value, def, error)) {
+            return false;
+        }
+        parsed.push_back(std::move(def));
+    }
+    weapons = std::move(parsed);
+    return true;
+}
+
+bool ContentDB::load_weapons(const std::filesystem::path& path, std::string* error) {
+    std::ifstream f(path);
+    if (!f) {
+        if (error) {
+            *error = std::format("cannot open {}", path.string());
+        }
+        return false;
+    }
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    return load_weapons_from_string(ss.str(), error);
 }
 
 } // namespace ds

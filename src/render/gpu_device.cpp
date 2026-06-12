@@ -190,4 +190,19 @@ SDL_GPUSampler* GpuDevice::create_nearest_sampler() {
     return sampler;
 }
 
+SDL_GPUSampler* GpuDevice::create_clamp_sampler() {
+    SDL_GPUSamplerCreateInfo si{};
+    si.min_filter = SDL_GPU_FILTER_NEAREST;
+    si.mag_filter = SDL_GPU_FILTER_NEAREST;
+    si.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
+    si.address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+    si.address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+    si.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+    SDL_GPUSampler* sampler = SDL_CreateGPUSampler(device_, &si);
+    if (!sampler) {
+        log_error("sampler creation failed: {}", SDL_GetError());
+    }
+    return sampler;
+}
+
 } // namespace ds

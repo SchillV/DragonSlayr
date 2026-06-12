@@ -27,6 +27,7 @@ struct DebugUiState {
     float player_speed = 0.0f; // tiles/s, for movement tuning
     uint64_t seed = 0;
     std::function<void(uint64_t)> regenerate; // invoked with the seed to generate
+    std::string center_message;              // big centered text (death screen)
 };
 
 // All Dear ImGui touchpoints live here so a backend break never bleeds into

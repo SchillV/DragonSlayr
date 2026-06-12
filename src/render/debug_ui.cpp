@@ -101,7 +101,26 @@ void DebugUi::new_frame() {
 }
 
 void DebugUi::build(const DebugUiState& state) {
-    if (!initialized_ || !visible) {
+    if (!initialized_) {
+        return;
+    }
+    // The center message (death screen) renders even when the overlay is off.
+    if (!state.center_message.empty()) {
+        const ImGuiViewport* vp = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f,
+                                       vp->WorkPos.y + vp->WorkSize.y * 0.45f),
+                                ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowBgAlpha(0.0f);
+        if (ImGui::Begin("##center_message", nullptr,
+                         ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs |
+                             ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+            ImGui::SetWindowFontScale(2.5f);
+            ImGui::TextUnformatted(state.center_message.c_str());
+            ImGui::SetWindowFontScale(1.0f);
+        }
+        ImGui::End();
+    }
+    if (!visible) {
         return;
     }
     if (!seed_input_synced_) {
@@ -309,10 +328,9 @@ ImDrawData* DebugUi::prepare(SDL_GPUCommandBuffer* cmd) {
     if (!initialized_) {
         return nullptr;
     }
-    ImGui::Render(); // keep the frame lifecycle balanced even when hidden
-    if (!visible) {
-        return nullptr;
-    }
+    // Window visibility is decided in build(); anything submitted gets drawn
+    // (e.g. the death message renders even with the overlay hidden).
+    ImGui::Render();
     ImDrawData* draw_data = ImGui::GetDrawData();
     if (!draw_data || draw_data->CmdListsCount == 0) {
         return nullptr;

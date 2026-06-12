@@ -2,10 +2,12 @@
 
 #include "core/cvar.hpp"
 #include "sim/collision.hpp"
+#include "sim/combat.hpp"
 #include "sim/components.hpp"
 #include "sim/pathfinding.hpp"
 #include "sim/world.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 namespace ds {
@@ -28,6 +30,7 @@ void enemy_ai_think(World& world, float dt) {
         const EnemyDef& def = world.content.enemies[enemy.def];
         const glm::vec2 to_player = player_pos - tr.pos;
         const float dist = glm::length(to_player);
+        enemy.attack_cooldown = std::max(0.0f, enemy.attack_cooldown - dt);
 
         switch (enemy.state) {
         case AiState::Idle:
@@ -63,7 +66,14 @@ void enemy_ai_think(World& world, float dt) {
                 tr.yaw = std::atan2(to_target.y, to_target.x);
             }
 
-            if (dist > def.aggro_radius * 1.75f) {
+            // Telegraphed attack: stop, wind up, then resolve.
+            if (dist <= def.attack.range && enemy.attack_cooldown <= 0.0f &&
+                !grid_raycast(world.map(), tr.pos, player_pos)) {
+                enemy.state = AiState::Windup;
+                enemy.state_time = def.attack.windup_s;
+                enemy.attack_cooldown = def.attack.cooldown_s;
+                vel.v = {0.0f, 0.0f};
+            } else if (dist > def.aggro_radius * 1.75f) {
                 enemy.state = AiState::Idle;
                 enemy.path.clear();
             }
@@ -71,9 +81,26 @@ void enemy_ai_think(World& world, float dt) {
         }
 
         case AiState::Windup:
-        case AiState::Recover:
-            // Combat states are driven by combat_resolve (M5).
             vel.v = {0.0f, 0.0f};
+            enemy.state_time -= dt;
+            if (enemy.state_time <= 0.0f) {
+                // The hit lands only if the player is still in reach — windups
+                // are dodgeable, that's the point.
+                if (dist <= def.attack.range * 1.3f &&
+                    !grid_raycast(world.map(), tr.pos, player_pos)) {
+                    damage_player(world, def.attack.damage, enemy.def);
+                }
+                enemy.state = AiState::Recover;
+                enemy.state_time = 0.25f;
+            }
+            break;
+
+        case AiState::Recover:
+            vel.v = {0.0f, 0.0f};
+            enemy.state_time -= dt;
+            if (enemy.state_time <= 0.0f) {
+                enemy.state = AiState::Chase;
+            }
             break;
         }
     }

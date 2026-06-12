@@ -7,7 +7,25 @@ from how you fought the ones before them.
 This is a ground-up C++20 rewrite (SDL3 + SDL_GPU) of the original Python/Tkinter raycaster,
 which lives on unchanged in [`legacy/`](legacy/).
 
-**Status: early foundation work — not a game yet.**
+**Status: playable combat slice.** Procedural dungeon, fast first-person movement with dash,
+sword + arcane bolt combat against pathfinding walkers, HUD, debug tooling, and per-run
+combat telemetry (the future boss-learning input). No floors/bosses/items yet.
+
+## Controls
+
+| Input | Action |
+|---|---|
+| WASD + mouse | move + look (running is the default speed) |
+| Left Shift | walk (precision) |
+| Space | dash |
+| LMB / RMB | sword swing / arcane bolt |
+| R | restart after death |
+| F1 / F2 | toggle mouse capture / debug overlay |
+| ` (grave) | console — `help`, `regen <seed>`, `noclip`, `sv.*` tuning cvars |
+| Esc | quit |
+
+Movement, combat and enemy numbers live in `assets/data/*.json` (hot-reloaded while the
+game runs) and in cvars tunable from the console.
 
 ## Building
 

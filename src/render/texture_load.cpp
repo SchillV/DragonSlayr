@@ -131,4 +131,29 @@ std::optional<Image> load_image(const std::filesystem::path& path, bool black_to
     return img;
 }
 
+Image scale_nearest(const Image& src, int w, int h) {
+    if (src.width == w && src.height == h) {
+        return src;
+    }
+    Image out;
+    out.width = w;
+    out.height = h;
+    out.pixels.resize(static_cast<size_t>(w) * h * 4);
+    if (src.width <= 0 || src.height <= 0) {
+        return out;
+    }
+    for (int y = 0; y < h; ++y) {
+        const int sy = y * src.height / h;
+        for (int x = 0; x < w; ++x) {
+            const int sx = x * src.width / w;
+            const size_t si = (static_cast<size_t>(sy) * src.width + sx) * 4;
+            const size_t di = (static_cast<size_t>(y) * w + x) * 4;
+            for (int c = 0; c < 4; ++c) {
+                out.pixels[di + c] = src.pixels[si + c];
+            }
+        }
+    }
+    return out;
+}
+
 } // namespace ds

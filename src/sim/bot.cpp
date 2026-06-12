@@ -28,9 +28,10 @@ PlayerCmd Bot::make_cmd(World& world) {
     cmd.run = true;
 
     if (mode_ == "walk_attack") {
-        // Swing roughly twice a second; the combat system lands in M5, until
-        // then the flag simply exercises the cmd path.
+        // Swing the sword and fire bolts on offset rhythms; exercises both
+        // weapon paths and produces telemetry the smoke test asserts on.
         cmd.attack_primary = (ticks_ % 30) == 0;
+        cmd.attack_secondary = (ticks_ % 75) == 40;
     }
     ++ticks_;
     return cmd;

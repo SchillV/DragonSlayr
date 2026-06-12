@@ -1,0 +1,25 @@
+{
+  "sword": {
+    "name": "Adventurer's Sword",
+    "type": "melee",
+    "damage": 7,
+    "range": 1.6,
+    "arc_deg": 75,
+    "swing_s": 0.28,
+    "cooldown_s": 0.45,
+    "viewmodel": "sword",
+    "sound": "swing"
+  },
+  "bolt": {
+    "name": "Arcane Bolt",
+    "type": "projectile",
+    "damage": 5,
+    "speed": 14.0,
+    "radius": 0.1,
+    "cooldown_s": 0.5,
+    "ttl_s": 3.0,
+    "sprite": "bolt",
+    "viewmodel": "hand",
+    "sound": "bolt_fire"
+  }
+}

@@ -87,6 +87,8 @@ bool parse_enemy(const std::string& id, const json& obj, EnemyDef& out, std::str
     if (!read_float(obj, path, "aggro_radius", out.aggro_radius, error)) return false;
     if (!read_string(obj, path, "sprite", out.sprite, error, /*required=*/true)) return false;
     if (!read_int(obj, path, "score", out.score, error)) return false;
+    if (!read_float(obj, path, "spawn_weight", out.spawn_weight, error)) return false;
+    if (!read_int(obj, path, "min_floor", out.min_floor, error)) return false;
 
     if (const auto it = obj.find("sprite_size"); it != obj.end()) {
         if (!it->is_array() || it->size() != 2 || !(*it)[0].is_number() || !(*it)[1].is_number()) {

@@ -26,6 +26,8 @@ struct EnemyDef {
     std::string sprite;             // texture name in assets/textures (no extension)
     glm::vec2 sprite_size{0.9f, 0.9f};
     int score = 50;
+    float spawn_weight = 1.0f; // relative weight in spawn selection (0 = never auto-spawns)
+    int min_floor = 1;         // earliest floor this enemy may appear on
     EnemyAttackDef attack;
 };
 

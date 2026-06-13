@@ -65,22 +65,21 @@ File: `assets/data/enemies.json`. Each key is an enemy id.
   "sprite": "monster",
   "sprite_size": [1.3, 1.3],
   "score": 150,
+  "spawn_weight": 0.4,
+  "min_floor": 1,
   "attack": { "damage": 14, "range": 1.1, "windup_s": 0.6, "cooldown_s": 1.4 }
 }
 ```
 
-Required: `hp`, `sprite`. This fully defines the enemy's *stats* and is hot-reloadable. **Two
-honest caveats in the current slice:**
+Required: `hp`, `sprite`. **`spawn_weight`** (default 1; 0 = never auto-spawns) is this enemy's
+relative chance at each spawn point, and **`min_floor`** (default 1) is the earliest floor it may
+appear on — so adding an enemy here is all it takes for it to show up in the dungeon, weighted
+against the others. Everything is hot-reloadable.
 
-1. **Behavior is fixed.** Every enemy runs the one melee-chaser state machine in
-   `src/sim/enemy_ai.cpp` (idle → chase → windup → recover). Your `brute` will be a bigger,
-   tougher, slower walker — but it can't yet be ranged or stationary. Adding behaviors is the next
-   section.
-2. **Only `"walker"` actually spawns.** `World::init_from_dungeon` currently places a `"walker"`
-   at every spawn point, so a new id won't appear in the dungeon on its own. To see it *now*,
-   temporarily change that lookup (or rename your enemy to `"walker"`). The proper fix —
-   **per-floor weighted spawn tables** so any defined enemy appears by data — is the first item on
-   the roadmap below.
+**One remaining caveat in the current slice:** behavior is fixed. Every enemy runs the one
+melee-chaser state machine in `src/sim/enemy_ai.cpp` (idle → chase → windup → recover), so your
+`brute` is a bigger, tougher, slower walker but can't yet be ranged or stationary. Adding
+behaviors is the next section.
 
 ## Recipe: tune the feel — *cvars, live*
 

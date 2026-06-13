@@ -8,11 +8,31 @@
     "sprite": "monster",
     "sprite_size": [0.9, 0.9],
     "score": 50,
+    "spawn_weight": 1.0,
+    "min_floor": 1,
     "attack": {
       "damage": 6,
       "range": 0.9,
       "windup_s": 0.35,
       "cooldown_s": 0.8
+    }
+  },
+  "brute": {
+    "name": "Dungeon Brute",
+    "hp": 36,
+    "speed": 1.8,
+    "radius": 0.5,
+    "aggro_radius": 9.0,
+    "sprite": "monster",
+    "sprite_size": [1.4, 1.4],
+    "score": 150,
+    "spawn_weight": 0.35,
+    "min_floor": 1,
+    "attack": {
+      "damage": 16,
+      "range": 1.2,
+      "windup_s": 0.6,
+      "cooldown_s": 1.5
     }
   }
 }

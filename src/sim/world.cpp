@@ -67,26 +67,63 @@ void World::init_from_dungeon(DungeonResult d, uint64_t s) {
     reg.emplace<Health>(player, 100.0f, 100.0f);
     reg.emplace<Player>(player);
 
-    // Every spawn point is a walker until spawn tables arrive with floors.
-    const int walker = content.find_enemy("walker");
-    if (walker >= 0) {
-        const EnemyDef& def = content.enemies[static_cast<size_t>(walker)];
-        for (const glm::ivec2 sp : dungeon.enemy_spawns) {
-            const glm::vec2 pos{static_cast<float>(sp.x) + 0.5f, static_cast<float>(sp.y) + 0.5f};
-            const entt::entity e = reg.create();
-            reg.emplace<Transform>(e, pos, 0.0f);
-            reg.emplace<PrevTransform>(e, pos, 0.0f);
-            reg.emplace<Velocity>(e);
-            reg.emplace<Body>(e, def.radius);
-            reg.emplace<Health>(e, def.hp, def.hp);
-            Enemy enemy;
-            enemy.def = static_cast<uint16_t>(walker);
-            enemy.spawn_tick = 0;
-            reg.emplace<Enemy>(e, std::move(enemy));
+    // Weighted spawn table: each spawn point draws an eligible enemy by
+    // spawn_weight. Adding an enemy to enemies.json with spawn_weight > 0 is
+    // all it takes to have it appear.
+    bool spawned_any = false;
+    for (const glm::ivec2 sp : dungeon.enemy_spawns) {
+        const int def_index = pick_enemy_for_floor(content, current_floor, rng);
+        if (def_index < 0) {
+            break; // nothing eligible on this floor
         }
-    } else if (!content.enemies.empty()) {
-        log_warn("no 'walker' enemy def; spawning nothing");
+        spawn_enemy(def_index, {static_cast<float>(sp.x) + 0.5f, static_cast<float>(sp.y) + 0.5f});
+        spawned_any = true;
     }
+    if (!spawned_any && !content.enemies.empty() && !dungeon.enemy_spawns.empty()) {
+        log_warn("no enemy is eligible to spawn on floor {} (check spawn_weight/min_floor)",
+                 current_floor);
+    }
+}
+
+entt::entity World::spawn_enemy(int def_index, glm::vec2 pos) {
+    const EnemyDef& def = content.enemies[static_cast<size_t>(def_index)];
+    const entt::entity e = reg.create();
+    reg.emplace<Transform>(e, pos, 0.0f);
+    reg.emplace<PrevTransform>(e, pos, 0.0f);
+    reg.emplace<Velocity>(e);
+    reg.emplace<Body>(e, def.radius);
+    reg.emplace<Health>(e, def.hp, def.hp);
+    Enemy enemy;
+    enemy.def = static_cast<uint16_t>(def_index);
+    enemy.spawn_tick = static_cast<uint32_t>(tick_count);
+    reg.emplace<Enemy>(e, std::move(enemy));
+    return e;
+}
+
+int pick_enemy_for_floor(const ContentDB& content, int floor, Rng& rng) {
+    auto eligible = [&](const EnemyDef& d) { return d.min_floor <= floor && d.spawn_weight > 0.0f; };
+    float total = 0.0f;
+    for (const EnemyDef& d : content.enemies) {
+        if (eligible(d)) {
+            total += d.spawn_weight;
+        }
+    }
+    if (total <= 0.0f) {
+        return -1;
+    }
+    float roll = rng.next_float01() * total;
+    int last = -1;
+    for (size_t i = 0; i < content.enemies.size(); ++i) {
+        if (!eligible(content.enemies[i])) {
+            continue;
+        }
+        last = static_cast<int>(i);
+        roll -= content.enemies[i].spawn_weight;
+        if (roll <= 0.0f) {
+            return static_cast<int>(i);
+        }
+    }
+    return last; // float rounding fallthrough → last eligible def
 }
 
 void World::tick(const PlayerCmd& cmd, float dt) {

@@ -51,35 +51,36 @@ The player's starting loadout is currently fixed to the ids `"sword"` and `"bolt
 `World::init_from_dungeon` (`src/sim/world.cpp`) — rename those lookups to hand the player a
 different weapon, or wait for the _(planned)_ class system to make loadouts data-driven.
 
-## Recipe: tune or add an enemy — *stats are JSON today, with two caveats*
+## Recipe: tune or add an enemy — *pure JSON*
 
-File: `assets/data/enemies.json`. Each key is an enemy id.
+File: `assets/data/enemies.json`. Each key is an enemy id. Adding an entry is all it takes for the
+enemy to appear in the dungeon and behave — no code.
 
 ```json
-"brute": {
-  "name": "Dungeon Brute",
-  "hp": 40,
-  "speed": 2.2,
-  "radius": 0.45,
-  "aggro_radius": 12.0,
-  "sprite": "monster",
-  "sprite_size": [1.3, 1.3],
-  "score": 150,
-  "spawn_weight": 0.4,
-  "min_floor": 1,
-  "attack": { "damage": 14, "range": 1.1, "windup_s": 0.6, "cooldown_s": 1.4 }
+"cultist": {
+  "name": "Dungeon Cultist",
+  "hp": 10, "speed": 2.6, "radius": 0.3, "aggro_radius": 13.0,
+  "sprite": "monster", "sprite_size": [0.8, 0.95], "score": 90,
+  "spawn_weight": 0.6, "min_floor": 1,
+  "behavior": "ranged", "keep_distance": 6.0,
+  "attack": { "damage": 8, "range": 9.0, "windup_s": 0.7, "cooldown_s": 1.6,
+              "projectile_speed": 9.0, "projectile_radius": 0.2 }
 }
 ```
 
-Required: `hp`, `sprite`. **`spawn_weight`** (default 1; 0 = never auto-spawns) is this enemy's
-relative chance at each spawn point, and **`min_floor`** (default 1) is the earliest floor it may
-appear on — so adding an enemy here is all it takes for it to show up in the dungeon, weighted
-against the others. Everything is hot-reloadable.
+Required: `hp`, `sprite`. The rest default (see `EnemyDef` in `src/sim/content.hpp`).
 
-**One remaining caveat in the current slice:** behavior is fixed. Every enemy runs the one
-melee-chaser state machine in `src/sim/enemy_ai.cpp` (idle → chase → windup → recover), so your
-`brute` is a bigger, tougher, slower walker but can't yet be ranged or stationary. Adding
-behaviors is the next section.
+- **`behavior`** picks the AI from the curated palette:
+  - `chaser` (default) — A*-paths to the player and melees on contact.
+  - `ranged` — kites to **`keep_distance`** and fires a projectile (`attack.projectile_speed`,
+    `attack.projectile_radius`); `attack.range` is the max firing distance.
+  - `charger` — chases, then at `attack.range` winds up and commits a fast **`lunge_speed`** dash.
+  - `stationary` — never moves; fires like `ranged` when it has line of sight.
+- **`spawn_weight`** (default 1; 0 = never auto-spawns) is the relative chance at each spawn point;
+  **`min_floor`** (default 1) is the earliest floor it can appear on.
+- `attack.windup_s` telegraphs every attack (dodge it); `attack.cooldown_s`/`recovery_s` pace it.
+
+Everything is hot-reloadable while the game runs.
 
 ## Recipe: tune the feel — *cvars, live*
 
@@ -97,16 +98,18 @@ File: `assets/data/bindings.json`, mapping actions to SDL key names (e.g. `"dash
 
 ## Adding a genuinely new enemy behavior — *small C++*
 
-When data isn't enough (a caster that keeps its distance and throws bolts, a turret that never
-moves), add a behavior to the curated set:
+The four behaviors above cover most needs by tuning. When you want a genuinely new *kind* of AI,
+add it to the curated set:
 
-1. In `src/sim/components.hpp`, extend `enum class AiState` if your behavior needs new states.
-2. In `src/sim/enemy_ai.cpp::enemy_ai_think`, branch on the new behavior and implement its
-   states. The existing chaser is the worked example; pathfinding (`astar`, `smooth_path`) and
-   line-of-sight (`grid_raycast`) helpers are already there.
-3. Add a `behavior` field to `EnemyDef` (`src/sim/content.hpp`) and parse it in
-   `parse_enemy` (`src/sim/content.cpp`) so JSON can select it. (This `behavior` field is the
-   intended near-term addition; until it exists, behavior is implicit.)
+1. Add a value to `enum class EnemyBehavior` (`src/sim/content.hpp`) and a string case for it in
+   `parse_enemy` (`src/sim/content.cpp`).
+2. Handle it in `src/sim/enemy_ai.cpp`: the `move_engaged` switch (how it moves while engaged) and
+   the `resolve_attack` switch (what its windup produces — melee, a `spawn_projectile`, or a
+   custom state). Add an `AiState` value if it needs a new phase (the charger's `Lunge` is the
+   worked example). Pathfinding (`astar`, `smooth_path`) and line-of-sight (`grid_raycast`)
+   helpers are already there.
+
+After that, any number of data-defined enemies can select and tune your new behavior.
 
 That's the hybrid pattern: one new C++ branch, then unlimited data-defined variants of it.
 
@@ -130,13 +133,14 @@ stat/modifier backbone for items and classes are planned foundation work.
 
 ---
 
-## Roadmap _(planned — not yet implemented)_
+## Roadmap
 
-These are designed seams, not finished features. Listed in the intended order of work.
+- **Enemy variety** — _done_: `behavior` (chaser / ranged / charger / stationary) dispatched in
+  `enemy_ai.cpp`, plus weighted, per-floor-aware spawn tables (`spawn_weight` / `min_floor`). See
+  the enemy recipe above.
 
-- **Enemy variety** — a `behavior` field on `EnemyDef` (chaser / ranged / charger / stationary)
-  dispatched in `enemy_ai.cpp`, plus **per-floor weighted spawn tables** so any enemy you define
-  appears in the dungeon by data. This is what makes "add an enemy" truly JSON-only.
+_Planned — designed seams, not finished features; in intended order of work:_
+
 - **Items + synergies** — an `ItemDef` (stat modifiers + tagged effect hooks like `on_hit` /
   `on_kill` / passive), an `Inventory` component, pickup entities placed by the generator
   (`DungeonResult` already carries spawn-point lists), and a stat/modifier layer that recomputes a

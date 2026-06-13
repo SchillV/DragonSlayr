@@ -576,18 +576,19 @@ int App::run_windowed(Platform& platform) {
                                     static_cast<float>(layer),
                                     flash ? flash->t : 0.0f});
         }
-        for (auto [e, proj, ptr, pprev] :
-             world.reg.view<const Projectile, const Transform, const PrevTransform>().each()) {
-            const WeaponDef& def = world.content.weapons[proj.weapon];
-            const int layer = sprite_atlas.layer_of(def.sprite);
-            if (layer < 0) {
-                continue;
+        // All projectiles render as the glowy "bolt"; enemy shots are tinted
+        // red via the sprite flash channel to read as a threat.
+        const int bolt_layer = sprite_atlas.layer_of("bolt");
+        if (bolt_layer >= 0) {
+            for (auto [e, proj, ptr, pprev] :
+                 world.reg.view<const Projectile, const Transform, const PrevTransform>().each()) {
+                const glm::vec2 pp = glm::mix(pprev.pos, ptr.pos, alpha);
+                // Bolts fly at eye height; sprite centers are feet, so drop half.
+                view.sprites.push_back({{pp.x, r_eye_height.value - 0.125f, pp.y},
+                                        {0.25f, 0.25f},
+                                        static_cast<float>(bolt_layer),
+                                        proj.team == Team::Enemy ? 1.0f : 0.0f});
             }
-            const glm::vec2 pp = glm::mix(pprev.pos, ptr.pos, alpha);
-            // Bolts fly at eye height; sprite centers are feet, so drop half.
-            view.sprites.push_back(
-                {{pp.x, r_eye_height.value - 0.125f, pp.y}, {0.25f, 0.25f},
-                 static_cast<float>(layer), 0.0f});
         }
 
         // HUD on top of the world, under the debug UI.

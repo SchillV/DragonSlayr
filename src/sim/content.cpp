@@ -89,6 +89,28 @@ bool parse_enemy(const std::string& id, const json& obj, EnemyDef& out, std::str
     if (!read_int(obj, path, "score", out.score, error)) return false;
     if (!read_float(obj, path, "spawn_weight", out.spawn_weight, error)) return false;
     if (!read_int(obj, path, "min_floor", out.min_floor, error)) return false;
+    if (!read_float(obj, path, "keep_distance", out.keep_distance, error)) return false;
+    if (!read_float(obj, path, "lunge_speed", out.lunge_speed, error)) return false;
+
+    {
+        std::string behavior;
+        if (!read_string(obj, path, "behavior", behavior, error)) return false;
+        if (behavior == "chaser" || behavior.empty()) {
+            out.behavior = EnemyBehavior::Chaser;
+        } else if (behavior == "ranged") {
+            out.behavior = EnemyBehavior::Ranged;
+        } else if (behavior == "charger") {
+            out.behavior = EnemyBehavior::Charger;
+        } else if (behavior == "stationary") {
+            out.behavior = EnemyBehavior::Stationary;
+        } else {
+            if (error) {
+                *error = std::format("{}.behavior: unknown '{}' (chaser|ranged|charger|stationary)",
+                                     path, behavior);
+            }
+            return false;
+        }
+    }
 
     if (const auto it = obj.find("sprite_size"); it != obj.end()) {
         if (!it->is_array() || it->size() != 2 || !(*it)[0].is_number() || !(*it)[1].is_number()) {
@@ -112,6 +134,13 @@ bool parse_enemy(const std::string& id, const json& obj, EnemyDef& out, std::str
         if (!read_float(*it, apath, "range", out.attack.range, error)) return false;
         if (!read_float(*it, apath, "windup_s", out.attack.windup_s, error)) return false;
         if (!read_float(*it, apath, "cooldown_s", out.attack.cooldown_s, error)) return false;
+        if (!read_float(*it, apath, "recovery_s", out.attack.recovery_s, error)) return false;
+        if (!read_float(*it, apath, "dodge_window_mult", out.attack.dodge_window_mult, error))
+            return false;
+        if (!read_float(*it, apath, "projectile_speed", out.attack.projectile_speed, error))
+            return false;
+        if (!read_float(*it, apath, "projectile_radius", out.attack.projectile_radius, error))
+            return false;
     }
     return true;
 }

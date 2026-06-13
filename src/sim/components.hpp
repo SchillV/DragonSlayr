@@ -45,8 +45,15 @@ struct Player {
     float hurt_flash = 0.0f;         // 1 -> 0, drives the HUD red flash
 };
 
+// Whose side a projectile is on — decides what it can hit.
+enum class Team : uint8_t { Player, Enemy };
+
 struct Projectile {
-    uint16_t weapon = 0; // index into ContentDB::weapons
+    Team team = Team::Player;
+    uint16_t weapon = 0xffff; // originating weapon def (player shots), 0xffff if none
+    uint16_t src_def = 0xffff; // originating enemy def (enemy shots), for player-damage telemetry
+    float damage = 5.0f;
+    float radius = 0.1f;
     float ttl = 3.0f;
 };
 
@@ -55,7 +62,7 @@ struct HurtFlash {
     float t = 0.0f; // 1 -> 0
 };
 
-enum class AiState : uint8_t { Idle, Chase, Windup, Recover };
+enum class AiState : uint8_t { Idle, Chase, Windup, Recover, Lunge };
 
 struct Enemy {
     uint16_t def = 0; // index into ContentDB::enemies
@@ -64,6 +71,7 @@ struct Enemy {
     float repath_timer = 0.0f;
     float attack_cooldown = 0.0f;
     uint32_t spawn_tick = 0; // for kill telemetry (alive seconds)
+    glm::vec2 lunge_dir{0.0f}; // charger: locked-in dash direction
     std::vector<glm::vec2> path; // smoothed waypoints, world space
     size_t path_index = 0;
 };

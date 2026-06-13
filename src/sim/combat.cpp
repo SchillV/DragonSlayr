@@ -56,6 +56,25 @@ bool in_melee_arc(glm::vec2 origin, float yaw, float range, float arc_deg, glm::
     return std::abs(wrap_angle(ang - yaw)) <= glm::radians(arc_deg) * 0.5f;
 }
 
+entt::entity spawn_projectile(World& world, Team team, uint16_t weapon, uint16_t src_def,
+                              glm::vec2 pos, glm::vec2 dir, float speed, float damage, float radius,
+                              float ttl) {
+    const float yaw = std::atan2(dir.y, dir.x);
+    const entt::entity p = world.reg.create();
+    world.reg.emplace<Transform>(p, pos, yaw);
+    world.reg.emplace<PrevTransform>(p, pos, yaw);
+    world.reg.emplace<Velocity>(p, dir * speed);
+    Projectile proj;
+    proj.team = team;
+    proj.weapon = weapon;
+    proj.src_def = src_def;
+    proj.damage = damage;
+    proj.radius = radius;
+    proj.ttl = ttl;
+    world.reg.emplace<Projectile>(p, proj);
+    return p;
+}
+
 void player_combat(World& world, const PlayerCmd& cmd, float dt) {
     auto& pl = world.reg.get<Player>(world.player);
     const auto& tr = world.reg.get<Transform>(world.player);
@@ -106,15 +125,9 @@ void player_combat(World& world, const PlayerCmd& cmd, float dt) {
         pl.cast_anim = 1.0f;
 
         const glm::vec2 dir{std::cos(cmd.yaw), std::sin(cmd.yaw)};
-        const glm::vec2 spawn = tr.pos + dir * 0.4f;
-        const entt::entity p = world.reg.create();
-        world.reg.emplace<Transform>(p, spawn, cmd.yaw);
-        world.reg.emplace<PrevTransform>(p, spawn, cmd.yaw);
-        world.reg.emplace<Velocity>(p, dir * w.speed);
-        Projectile proj;
-        proj.weapon = static_cast<uint16_t>(world.secondary_weapon);
-        proj.ttl = w.ttl_s;
-        world.reg.emplace<Projectile>(p, proj);
+        spawn_projectile(world, Team::Player, static_cast<uint16_t>(world.secondary_weapon),
+                         /*src_def=*/0xffff, tr.pos + dir * 0.4f, dir, w.speed, w.damage, w.radius,
+                         w.ttl_s);
 
         TelemetryEvent ev;
         ev.tick = static_cast<uint32_t>(world.tick_count);
@@ -130,6 +143,9 @@ void player_combat(World& world, const PlayerCmd& cmd, float dt) {
 void projectiles_update(World& world, float dt) {
     // Projectiles have no Body on purpose: move_and_collide skips them and
     // they sweep the grid themselves (a moving point can't tunnel a raycast).
+    const glm::vec2 player_pos = world.reg.get<Transform>(world.player).pos;
+    const float player_r = world.reg.get<Body>(world.player).radius;
+
     for (auto [e, proj, tr, vel] : world.reg.view<Projectile, Transform, Velocity>().each()) {
         proj.ttl -= dt;
         if (proj.ttl <= 0.0f) {
@@ -137,26 +153,35 @@ void projectiles_update(World& world, float dt) {
             continue;
         }
         const glm::vec2 next = tr.pos + vel.v * dt;
-        const WeaponDef& w = world.content.weapons[proj.weapon];
-
         bool consumed = false;
-        for (auto [en, enemy, etr, ebody] : world.reg.view<Enemy, Transform, Body>().each()) {
-            const float reach = w.radius + ebody.radius;
-            if (seg_point_dist2(tr.pos, next, etr.pos) <= reach * reach) {
-                damage_enemy(world, en, w.damage, proj.weapon);
 
-                TelemetryEvent ev;
-                ev.tick = static_cast<uint32_t>(world.tick_count);
-                ev.type = EvType::ProjectileHit;
-                ev.def = enemy.def;
-                ev.a = w.damage;
-                ev.x = etr.pos.x;
-                ev.y = etr.pos.y;
-                world.telem.record(ev);
+        if (proj.team == Team::Player) {
+            for (auto [en, enemy, etr, ebody] : world.reg.view<Enemy, Transform, Body>().each()) {
+                const float reach = proj.radius + ebody.radius;
+                if (seg_point_dist2(tr.pos, next, etr.pos) <= reach * reach) {
+                    damage_enemy(world, en, proj.damage,
+                                 proj.weapon == 0xffff ? -1 : static_cast<int>(proj.weapon));
 
+                    TelemetryEvent ev;
+                    ev.tick = static_cast<uint32_t>(world.tick_count);
+                    ev.type = EvType::ProjectileHit;
+                    ev.def = enemy.def;
+                    ev.a = proj.damage;
+                    ev.x = etr.pos.x;
+                    ev.y = etr.pos.y;
+                    world.telem.record(ev);
+
+                    world.reg.emplace_or_replace<Doomed>(e);
+                    consumed = true;
+                    break;
+                }
+            }
+        } else if (!world.player_dead) {
+            const float reach = proj.radius + player_r;
+            if (seg_point_dist2(tr.pos, next, player_pos) <= reach * reach) {
+                damage_player(world, proj.damage, proj.src_def); // records PlayerDamaged
                 world.reg.emplace_or_replace<Doomed>(e);
                 consumed = true;
-                break;
             }
         }
         if (consumed) {
@@ -165,13 +190,15 @@ void projectiles_update(World& world, float dt) {
 
         glm::ivec2 hit_tile;
         if (grid_raycast(world.map(), tr.pos, next, &hit_tile)) {
-            TelemetryEvent ev;
-            ev.tick = static_cast<uint32_t>(world.tick_count);
-            ev.type = EvType::ProjectileHit;
-            ev.def = 0xffff; // wall
-            ev.x = static_cast<float>(hit_tile.x) + 0.5f;
-            ev.y = static_cast<float>(hit_tile.y) + 0.5f;
-            world.telem.record(ev);
+            if (proj.team == Team::Player) {
+                TelemetryEvent ev;
+                ev.tick = static_cast<uint32_t>(world.tick_count);
+                ev.type = EvType::ProjectileHit;
+                ev.def = 0xffff; // wall
+                ev.x = static_cast<float>(hit_tile.x) + 0.5f;
+                ev.y = static_cast<float>(hit_tile.y) + 0.5f;
+                world.telem.record(ev);
+            }
             world.reg.emplace_or_replace<Doomed>(e);
             continue;
         }

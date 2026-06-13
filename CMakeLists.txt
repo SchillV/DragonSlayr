@@ -89,6 +89,7 @@ add_executable(ds_tests
   tests/test_telemetry.cpp
   tests/test_combat.cpp
   tests/test_spawn.cpp
+  tests/test_enemy_ai.cpp
   src/render/texture_load.cpp
   src/render/dungeon_mesh.cpp
 )

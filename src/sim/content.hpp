@@ -11,10 +11,17 @@ namespace ds {
 
 struct EnemyAttackDef {
     float damage = 6.0f;
-    float range = 0.9f;
-    float windup_s = 0.35f;
+    float range = 0.9f;          // melee reach, or max firing distance for ranged
+    float windup_s = 0.35f;      // telegraph before the hit/shot lands
     float cooldown_s = 0.8f;
+    float recovery_s = 0.25f;    // pause after attacking before re-engaging
+    float dodge_window_mult = 1.3f; // melee connects if target within range*this at strike
+    float projectile_speed = 10.0f;  // ranged
+    float projectile_radius = 0.18f; // ranged
 };
+
+// Curated AI palette (the hybrid seam): data picks one, C++ implements it.
+enum class EnemyBehavior : uint8_t { Chaser, Ranged, Charger, Stationary };
 
 struct EnemyDef {
     std::string id; // JSON object key
@@ -28,6 +35,9 @@ struct EnemyDef {
     int score = 50;
     float spawn_weight = 1.0f; // relative weight in spawn selection (0 = never auto-spawns)
     int min_floor = 1;         // earliest floor this enemy may appear on
+    EnemyBehavior behavior = EnemyBehavior::Chaser;
+    float keep_distance = 6.0f; // ranged: preferred distance to maintain from the player
+    float lunge_speed = 16.0f;  // charger: dash speed during the lunge
     EnemyAttackDef attack;
 };
 

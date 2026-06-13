@@ -10,9 +10,16 @@
 namespace ds {
 
 struct World;
+enum class Team : uint8_t; // sim/components.hpp
 
 // Pure helper, unit-tested: is `target` inside the melee swing?
 bool in_melee_arc(glm::vec2 origin, float yaw, float range, float arc_deg, glm::vec2 target);
+
+// Spawns a projectile entity. Reused by player weapons and ranged enemy AI;
+// `src_def` attributes player-damage telemetry to the firing enemy (0xffff = player).
+entt::entity spawn_projectile(World& world, Team team, uint16_t weapon, uint16_t src_def,
+                              glm::vec2 pos, glm::vec2 dir, float speed, float damage, float radius,
+                              float ttl);
 
 // Player weapon activation (sword swing, bolt spawn) for this tick's cmd.
 void player_combat(World& world, const PlayerCmd& cmd, float dt);

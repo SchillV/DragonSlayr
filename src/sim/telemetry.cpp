@@ -31,10 +31,20 @@ const char* type_name(EvType t) {
 
 std::string utc_now_compact() {
     const std::time_t t = std::time(nullptr);
-    char buf[32] = {};
-    if (const std::tm* tm = std::gmtime(&t)) {
-        std::strftime(buf, sizeof(buf), "%Y%m%dT%H%M%S", tm);
+    std::tm tm_buf{};
+    // std::gmtime is not thread-safe and trips MSVC's deprecation warning under
+    // /W4; use each platform's reentrant variant instead.
+#if defined(_WIN32)
+    if (gmtime_s(&tm_buf, &t) != 0) {
+        return {};
     }
+#else
+    if (gmtime_r(&t, &tm_buf) == nullptr) {
+        return {};
+    }
+#endif
+    char buf[32] = {};
+    std::strftime(buf, sizeof(buf), "%Y%m%dT%H%M%S", &tm_buf);
     return buf;
 }
 

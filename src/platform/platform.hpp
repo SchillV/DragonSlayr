@@ -19,8 +19,14 @@ private:
     bool initialized_ = false;
 };
 
-// Walks up from the executable looking for an assets/ directory: dev builds run
-// from build/<preset>/, shipped builds keep assets next to the binary.
+// Walks up from the executable looking for a named resource directory (e.g.
+// "assets" or "shaders"). Handles both single-config layouts (Ninja: exe and
+// shaders under build/<preset>/) and multi-config layouts (Visual Studio: exe
+// in build/<cfg>/, shaders staged beside it post-build), plus shipped builds
+// where the directory sits right next to the binary.
+std::filesystem::path find_resource_dir(const char* name);
+
+// Convenience wrapper for the assets/ directory.
 std::filesystem::path find_asset_root();
 
 } // namespace ds

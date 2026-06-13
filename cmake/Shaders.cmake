@@ -2,9 +2,12 @@
 # source (works on machines with zero preinstalled tools). Escape hatch:
 # -DDS_USE_PREBUILT_SHADERS=ON copies the committed artifacts from shaders/compiled/.
 #
-# Outputs land in ${CMAKE_BINARY_DIR}/shaders/<name>.spv, next to the executable.
+# Outputs land in ${CMAKE_BINARY_DIR}/shaders_spv/<name>.spv. A POST_BUILD step
+# on the executable (see the top-level CMakeLists) stages them into a shaders/
+# folder beside the binary, so runtime discovery works the same on single-config
+# (Ninja) and multi-config (Visual Studio) layouts.
 
-set(DS_SHADER_OUT_DIR ${CMAKE_BINARY_DIR}/shaders)
+set(DS_SHADER_OUT_DIR ${CMAKE_BINARY_DIR}/shaders_spv)
 file(MAKE_DIRECTORY ${DS_SHADER_OUT_DIR})
 
 set(_ds_shader_outputs "")

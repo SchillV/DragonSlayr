@@ -354,9 +354,7 @@ int App::run_windowed(Platform& platform) {
         return 1;
     }
 
-    const char* base_path = SDL_GetBasePath();
-    const std::filesystem::path shader_dir =
-        (base_path ? std::filesystem::path(base_path) : std::filesystem::path(".")) / "shaders";
+    const std::filesystem::path shader_dir = find_resource_dir("shaders");
 
     GpuRenderer renderer(shader_dir);
     if (!renderer.init(window)) {

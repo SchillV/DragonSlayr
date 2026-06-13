@@ -11,7 +11,10 @@ option(DS_ENABLE_DESKTOP_VIDEO "Build SDL desktop video backends (X11/Wayland)" 
 if(NOT DS_ENABLE_DESKTOP_VIDEO)
   set(SDL_X11 OFF CACHE BOOL "" FORCE)
   set(SDL_WAYLAND OFF CACHE BOOL "" FORCE)
-  set(SDL_UNIX_CONSOLE_BUILD ON CACHE BOOL "" FORCE) # SDL guards against accidental video-less builds
+  if(UNIX AND NOT APPLE)
+    # SDL guards against accidental video-less builds; this opt-in is Unix-only.
+    set(SDL_UNIX_CONSOLE_BUILD ON CACHE BOOL "" FORCE)
+  endif()
 endif()
 
 set(SDL_SHARED OFF CACHE BOOL "" FORCE)

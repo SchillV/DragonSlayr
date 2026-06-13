@@ -64,6 +64,15 @@ if(UNIX AND NOT APPLE)
 endif()
 add_dependencies(dragonslayr shaders)
 
+# Stage compiled shaders into a shaders/ folder right next to the executable so
+# find_resource_dir("shaders") locates them regardless of generator layout
+# (Ninja keeps the exe at build/<preset>/, Visual Studio at build/<cfg>/).
+add_custom_command(TARGET dragonslayr POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+          ${DS_SHADER_OUT_DIR} $<TARGET_FILE_DIR:dragonslayr>/shaders
+  COMMENT "Staging shaders next to the executable"
+  VERBATIM)
+
 enable_testing()
 
 # Tests link the sim plus the few render-side files that are pure CPU

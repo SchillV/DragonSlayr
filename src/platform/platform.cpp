@@ -38,13 +38,13 @@ SDL_Window* Platform::create_window(const char* title, int w, int h) {
     return window_;
 }
 
-std::filesystem::path find_asset_root() {
+std::filesystem::path find_resource_dir(const char* name) {
     const char* base = SDL_GetBasePath();
     std::error_code ec;
     std::filesystem::path dir = base ? std::filesystem::path(base) : std::filesystem::current_path(ec);
-    for (int i = 0; i < 6; ++i) {
-        if (std::filesystem::exists(dir / "assets", ec)) {
-            return dir / "assets";
+    for (int i = 0; i < 8; ++i) {
+        if (std::filesystem::exists(dir / name, ec)) {
+            return dir / name;
         }
         const auto parent = dir.parent_path();
         if (parent.empty() || parent == dir) {
@@ -52,8 +52,12 @@ std::filesystem::path find_asset_root() {
         }
         dir = parent;
     }
-    log_warn("asset root not found near executable; falling back to ./assets");
-    return std::filesystem::path("assets");
+    log_warn("resource dir '{}' not found near executable; falling back to ./{}", name, name);
+    return std::filesystem::path(name);
+}
+
+std::filesystem::path find_asset_root() {
+    return find_resource_dir("assets");
 }
 
 } // namespace ds

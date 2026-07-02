@@ -65,9 +65,13 @@ FetchContent_Declare(nlohmann_json
   EXCLUDE_FROM_ALL
 )
 
-# --- stb_image (texture loading) — single pinned header -------------------------
+# --- stb_image / stb_truetype (textures, font baking) — pinned single headers --
 FetchContent_Declare(stb_image
   URL https://raw.githubusercontent.com/nothings/stb/31c1ad37456438565541f4919958214b6e762fb4/stb_image.h
+  DOWNLOAD_NO_EXTRACT TRUE
+)
+FetchContent_Declare(stb_truetype
+  URL https://raw.githubusercontent.com/nothings/stb/31c1ad37456438565541f4919958214b6e762fb4/stb_truetype.h
   DOWNLOAD_NO_EXTRACT TRUE
 )
 
@@ -87,7 +91,7 @@ FetchContent_Declare(miniaudio
   SOURCE_SUBDIR _no_cmake_here_
 )
 
-set(_ds_deps SDL3 doctest EnTT glm nlohmann_json stb_image imgui miniaudio)
+set(_ds_deps SDL3 doctest EnTT glm nlohmann_json stb_image stb_truetype imgui miniaudio)
 
 # --- glslang (build-time GLSL -> SPIR-V compiler) --------------------------------
 option(DS_USE_PREBUILT_SHADERS "Use committed .spv artifacts from shaders/compiled/ instead of building glslang" OFF)
@@ -111,9 +115,13 @@ endif()
 
 FetchContent_MakeAvailable(${_ds_deps})
 
-# stb: header-only interface target
+# stb + vendored font8x8: header-only interface target
 add_library(ds_stb INTERFACE)
-target_include_directories(ds_stb SYSTEM INTERFACE ${stb_image_SOURCE_DIR})
+target_include_directories(ds_stb SYSTEM INTERFACE
+  ${stb_image_SOURCE_DIR}
+  ${stb_truetype_SOURCE_DIR}
+  ${CMAKE_SOURCE_DIR}/third_party/font8x8
+)
 
 # miniaudio: header-only interface target (implementation TU in src/platform)
 add_library(ds_miniaudio INTERFACE)

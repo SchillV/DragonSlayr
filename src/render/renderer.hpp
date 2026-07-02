@@ -38,6 +38,8 @@ public:
     virtual void set_world_textures(std::span<const Image> layers) = 0;
     virtual void set_sprite_textures(std::span<const Image> layers) = 0;
     virtual void set_overlay_textures(std::span<const Image> layers) = 0;
+    // Single image sampled by FrameView::overlay_text quads (the glyph atlas).
+    virtual void set_font_texture(const Image& image) = 0;
     virtual void set_dungeon_mesh(const MeshData& mesh) = 0;
     virtual void render(const FrameView& view) = 0;
 };
@@ -49,6 +51,7 @@ public:
     void set_world_textures(std::span<const Image>) override {}
     void set_sprite_textures(std::span<const Image>) override {}
     void set_overlay_textures(std::span<const Image>) override {}
+    void set_font_texture(const Image&) override {}
     void set_dungeon_mesh(const MeshData&) override {}
     void render(const FrameView&) override {}
 };

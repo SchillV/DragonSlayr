@@ -24,11 +24,12 @@ static_assert(sizeof(SpriteInstance) == 7 * sizeof(float));
 
 // One 2D screen-space quad. Layout mirrors the overlay shader's attributes.
 struct OverlayQuad {
-    glm::vec2 pos{0.0f};  // pixels, top-left origin
+    glm::vec2 pos{0.0f};  // pixels, top-left origin (of the unrotated quad)
     glm::vec2 size{0.0f}; // pixels
     glm::vec4 uv_rect{0.0f, 0.0f, 1.0f, 1.0f};
     float layer = 0.0f;   // overlay texture array layer (0 = white)
-    glm::vec3 _pad{0.0f}; // keeps color vec4-aligned for the GPU layout
+    float rot = 0.0f;     // radians, rotation around the quad center
+    glm::vec2 _pad{0.0f}; // keeps color vec4-aligned for the GPU layout
     glm::vec4 color{1.0f};
 };
 static_assert(sizeof(OverlayQuad) == 16 * sizeof(float));
@@ -39,7 +40,8 @@ struct FrameView {
     CameraView camera;
     double time = 0.0; // seconds since app start (debug/animation)
     std::vector<SpriteInstance> sprites;
-    std::vector<OverlayQuad> overlay; // drawn in order, after the world
+    std::vector<OverlayQuad> overlay;      // drawn in order, after the world
+    std::vector<OverlayQuad> overlay_text; // same pipeline, sampled from the font atlas
 };
 
 } // namespace ds

@@ -6,6 +6,8 @@
 
 namespace ds {
 
+struct FontAtlas;
+
 // Overlay texture array layout the HUD assumes (built by the app):
 inline constexpr float kOverlayWhite = 0.0f; // 1x1 white, for solid quads
 inline constexpr float kOverlaySword = 1.0f;
@@ -23,7 +25,8 @@ struct HudState {
 };
 
 // Appends crosshair, health bar, hurt flash, viewmodel and death dim quads to
-// the frame's overlay list. Pixel-space; viewport in pixels.
-void build_hud(FrameView& view, const HudState& state, glm::vec2 viewport);
+// the frame's overlay list (text goes to overlay_text via the font). Pixel
+// space; viewport in pixels. `font` may be null (text is skipped).
+void build_hud(FrameView& view, const HudState& state, glm::vec2 viewport, const FontAtlas* font);
 
 } // namespace ds

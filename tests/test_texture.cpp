@@ -14,7 +14,7 @@ TEST_CASE("legacy P3 PPM textures load as 64x64 RGBA") {
 }
 
 TEST_CASE("black_to_alpha keys out the legacy transparency color") {
-    const auto img = ds::load_image("assets/textures/monster.ppm", /*black_to_alpha=*/true);
+    const auto img = ds::load_image("assets/textures/walker.ppm", /*black_to_alpha=*/true);
     REQUIRE(img.has_value());
     // The sprite sheet background is pure black, which becomes transparent.
     CHECK(img->pixels[3] == 0);

@@ -67,6 +67,7 @@ void GpuRenderer::shutdown() {
     if (overlay_instances_) SDL_ReleaseGPUBuffer(d, overlay_instances_);
     if (overlay_transfer_) SDL_ReleaseGPUTransferBuffer(d, overlay_transfer_);
     if (overlay_atlas_) SDL_ReleaseGPUTexture(d, overlay_atlas_);
+    if (font_texture_) SDL_ReleaseGPUTexture(d, font_texture_);
     if (nearest_sampler_) SDL_ReleaseGPUSampler(d, nearest_sampler_);
     if (clamp_sampler_) SDL_ReleaseGPUSampler(d, clamp_sampler_);
     if (world_pipeline_) SDL_ReleaseGPUGraphicsPipeline(d, world_pipeline_);
@@ -74,7 +75,7 @@ void GpuRenderer::shutdown() {
     if (overlay_pipeline_) SDL_ReleaseGPUGraphicsPipeline(d, overlay_pipeline_);
     depth_tex_ = nullptr;
     world_vbuf_ = world_ibuf_ = nullptr;
-    world_atlas_ = sprite_atlas_ = overlay_atlas_ = nullptr;
+    world_atlas_ = sprite_atlas_ = overlay_atlas_ = font_texture_ = nullptr;
     sprite_instances_ = overlay_instances_ = nullptr;
     sprite_transfer_ = overlay_transfer_ = nullptr;
     nearest_sampler_ = clamp_sampler_ = nullptr;
@@ -211,12 +212,13 @@ bool GpuRenderer::create_overlay_pipeline() {
     vbd.pitch = sizeof(OverlayQuad);
     vbd.input_rate = SDL_GPU_VERTEXINPUTRATE_INSTANCE;
 
-    SDL_GPUVertexAttribute attrs[5]{};
+    SDL_GPUVertexAttribute attrs[6]{};
     attrs[0] = {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(OverlayQuad, pos)};
     attrs[1] = {1, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(OverlayQuad, size)};
     attrs[2] = {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(OverlayQuad, uv_rect)};
     attrs[3] = {3, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT, offsetof(OverlayQuad, layer)};
-    attrs[4] = {4, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(OverlayQuad, color)};
+    attrs[4] = {4, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT, offsetof(OverlayQuad, rot)};
+    attrs[5] = {5, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(OverlayQuad, color)};
 
     SDL_GPUColorTargetDescription ctd{};
     ctd.format = swapchain_format();
@@ -234,7 +236,7 @@ bool GpuRenderer::create_overlay_pipeline() {
     pi.vertex_input_state.vertex_buffer_descriptions = &vbd;
     pi.vertex_input_state.num_vertex_buffers = 1;
     pi.vertex_input_state.vertex_attributes = attrs;
-    pi.vertex_input_state.num_vertex_attributes = 5;
+    pi.vertex_input_state.num_vertex_attributes = 6;
     pi.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
     pi.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
     pi.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
@@ -282,6 +284,16 @@ void GpuRenderer::set_overlay_textures(std::span<const Image> layers) {
     }
     if (!layers.empty()) {
         overlay_atlas_ = dev_.create_texture_array(layers);
+    }
+}
+
+void GpuRenderer::set_font_texture(const Image& image) {
+    if (font_texture_) {
+        SDL_ReleaseGPUTexture(dev_.handle(), font_texture_);
+        font_texture_ = nullptr;
+    }
+    if (image.width > 0) {
+        font_texture_ = dev_.create_texture_array({&image, 1});
     }
 }
 
@@ -385,7 +397,14 @@ void GpuRenderer::render(const FrameView& view) {
     const bool draw_sprites = sprite_pipeline_ && sprite_atlas_ && sprite_count > 0;
     const auto overlay_count = static_cast<uint32_t>(view.overlay.size());
     const bool draw_overlay = overlay_pipeline_ && overlay_atlas_ && overlay_count > 0;
-    if (draw_sprites || draw_overlay) {
+    const auto text_count = static_cast<uint32_t>(view.overlay_text.size());
+    const bool draw_text = overlay_pipeline_ && font_texture_ && text_count > 0;
+    // HUD quads and glyph quads share one instance buffer; text is a second
+    // draw range ([text_first, text_first+text_count)) sampling the font.
+    const uint32_t text_first = draw_overlay ? overlay_count : 0;
+    const uint32_t overlay_total =
+        (draw_overlay ? overlay_count : 0) + (draw_text ? text_count : 0);
+    if (draw_sprites || overlay_total > 0) {
         SDL_GPUCopyPass* cp = SDL_BeginGPUCopyPass(cmd);
         if (draw_sprites) {
             ensure_sprite_capacity(sprite_count);
@@ -400,17 +419,26 @@ void GpuRenderer::render(const FrameView& view) {
             dst.size = sprite_count * sizeof(SpriteInstance);
             SDL_UploadToGPUBuffer(cp, &src, &dst, /*cycle=*/true);
         }
-        if (draw_overlay) {
-            ensure_overlay_capacity(overlay_count);
-            void* map = SDL_MapGPUTransferBuffer(dev_.handle(), overlay_transfer_, /*cycle=*/true);
-            std::memcpy(map, view.overlay.data(), overlay_count * sizeof(OverlayQuad));
+        if (overlay_total > 0) {
+            ensure_overlay_capacity(overlay_total);
+            auto* map = static_cast<uint8_t*>(
+                SDL_MapGPUTransferBuffer(dev_.handle(), overlay_transfer_, /*cycle=*/true));
+            size_t offset = 0;
+            if (draw_overlay) {
+                std::memcpy(map, view.overlay.data(), overlay_count * sizeof(OverlayQuad));
+                offset = overlay_count * sizeof(OverlayQuad);
+            }
+            if (draw_text) {
+                std::memcpy(map + offset, view.overlay_text.data(),
+                            text_count * sizeof(OverlayQuad));
+            }
             SDL_UnmapGPUTransferBuffer(dev_.handle(), overlay_transfer_);
 
             SDL_GPUTransferBufferLocation src{};
             src.transfer_buffer = overlay_transfer_;
             SDL_GPUBufferRegion dst{};
             dst.buffer = overlay_instances_;
-            dst.size = overlay_count * sizeof(OverlayQuad);
+            dst.size = overlay_total * sizeof(OverlayQuad);
             SDL_UploadToGPUBuffer(cp, &src, &dst, /*cycle=*/true);
         }
         SDL_EndGPUCopyPass(cp);
@@ -486,22 +514,30 @@ void GpuRenderer::render(const FrameView& view) {
         SDL_DrawGPUPrimitives(pass, 6, sprite_count, 0, 0);
     }
 
-    if (draw_overlay) {
+    if (draw_overlay || draw_text) {
         SDL_BindGPUGraphicsPipeline(pass, overlay_pipeline_);
 
         SDL_GPUBufferBinding vb{};
         vb.buffer = overlay_instances_;
         SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
 
-        SDL_GPUTextureSamplerBinding ts{};
-        ts.texture = overlay_atlas_;
-        ts.sampler = clamp_sampler_;
-        SDL_BindGPUFragmentSamplers(pass, 0, &ts, 1);
-
         const OverlayUbo ubo{{static_cast<float>(w), static_cast<float>(h), 0.0f, 0.0f}};
         SDL_PushGPUVertexUniformData(cmd, 0, &ubo, sizeof(ubo));
 
-        SDL_DrawGPUPrimitives(pass, 6, overlay_count, 0, 0);
+        if (draw_overlay) {
+            SDL_GPUTextureSamplerBinding ts{};
+            ts.texture = overlay_atlas_;
+            ts.sampler = clamp_sampler_;
+            SDL_BindGPUFragmentSamplers(pass, 0, &ts, 1);
+            SDL_DrawGPUPrimitives(pass, 6, overlay_count, 0, 0);
+        }
+        if (draw_text) {
+            SDL_GPUTextureSamplerBinding ts{};
+            ts.texture = font_texture_;
+            ts.sampler = clamp_sampler_;
+            SDL_BindGPUFragmentSamplers(pass, 0, &ts, 1);
+            SDL_DrawGPUPrimitives(pass, 6, text_count, 0, text_first);
+        }
     }
     SDL_EndGPURenderPass(pass);
 

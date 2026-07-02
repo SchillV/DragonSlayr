@@ -8,6 +8,7 @@
 #include "platform/platform.hpp"
 #include "render/debug_ui.hpp"
 #include "render/dungeon_mesh.hpp"
+#include "render/font.hpp"
 #include "render/gpu_renderer.hpp"
 #include "render/texture_load.hpp"
 #include "sim/bot.hpp"
@@ -167,6 +168,29 @@ void load_content(World& world, const std::filesystem::path& data_dir) {
     } else {
         log_info("loaded {} weapon defs", world.content.weapons.size());
     }
+}
+
+// First assets/fonts/*.ttf baked via stb_truetype, else the builtin 8x8 font.
+FontAtlas load_game_font(const std::filesystem::path& asset_root) {
+    std::error_code ec;
+    const std::filesystem::path dir = asset_root / "fonts";
+    if (std::filesystem::exists(dir, ec)) {
+        for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+            if (entry.path().extension() != ".ttf") {
+                continue;
+            }
+            std::ifstream f(entry.path(), std::ios::binary);
+            const std::vector<uint8_t> bytes(std::istreambuf_iterator<char>(f),
+                                             std::istreambuf_iterator<char>{});
+            FontAtlas atlas = bake_ttf_font(bytes, 24.0f);
+            if (atlas.valid()) {
+                log_info("font: baked {}", entry.path().filename().string());
+                return atlas;
+            }
+        }
+    }
+    log_info("using builtin pixel font (drop a .ttf into assets/fonts/ to override)");
+    return bake_builtin_font();
 }
 
 // 1x1 white + viewmodel textures, in the kOverlay* layer order the HUD assumes.
@@ -384,6 +408,9 @@ int App::run_windowed(Platform& platform) {
     SpriteAtlas sprite_atlas =
         rebuild_sprite_atlas(renderer, world.content, asset_root / "textures");
     load_overlay_textures(renderer, asset_root / "textures");
+
+    const FontAtlas font = load_game_font(asset_root);
+    renderer.set_font_texture(font.image);
 
     Audio audio;
     audio.init(asset_root / "sounds");
@@ -608,7 +635,7 @@ int App::run_windowed(Platform& platform) {
             hud.score = world.score;
             int pw = 0, ph = 0;
             SDL_GetWindowSizeInPixels(window, &pw, &ph);
-            build_hud(view, hud, {static_cast<float>(pw), static_cast<float>(ph)});
+            build_hud(view, hud, {static_cast<float>(pw), static_cast<float>(ph)}, &font);
         }
         renderer.render(view);
 

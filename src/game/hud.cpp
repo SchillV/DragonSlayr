@@ -1,9 +1,12 @@
 #include "game/hud.hpp"
 
+#include "render/font.hpp"
+
 #include <glm/gtc/constants.hpp>
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 
 namespace ds {
 
@@ -29,7 +32,7 @@ void push_textured(FrameView& view, glm::vec2 pos, glm::vec2 size, float layer, 
 
 } // namespace
 
-void build_hud(FrameView& view, const HudState& state, glm::vec2 vp) {
+void build_hud(FrameView& view, const HudState& state, glm::vec2 vp, const FontAtlas* font) {
     const float scale = std::max(1.0f, std::round(vp.y / 360.0f)); // retro pixel scale
 
     // Hurt flash (under everything else so the HUD stays readable).
@@ -76,6 +79,27 @@ void build_hud(FrameView& view, const HudState& state, glm::vec2 vp) {
                    {0.0f, 0.0f, 0.0f, 0.6f});
         push_solid(view, pos, {size.x * frac, size.y},
                    {0.75f + 0.25f * (1.0f - frac), 0.15f + 0.45f * frac, 0.12f, 0.95f});
+
+        if (font && font->valid()) {
+            const std::string hp_text =
+                std::format("{}/{}", static_cast<int>(std::ceil(state.hp)),
+                            static_cast<int>(state.max_hp));
+            const float ts = scale; // 8px glyphs at the HUD pixel scale
+            const glm::vec2 tsize = measure_text(*font, hp_text, ts);
+            emit_text(view.overlay_text, *font, hp_text,
+                      {pos.x + size.x + 8.0f * scale, pos.y + (size.y - tsize.y) * 0.5f}, ts,
+                      {0.95f, 0.92f, 0.82f, 0.95f});
+        }
+    }
+
+    // Score, top-right (parchment tone from the Ember design language).
+    if (font && font->valid()) {
+        const std::string score_text = std::format("SCORE {}", state.score);
+        const float ts = scale;
+        const glm::vec2 tsize = measure_text(*font, score_text, ts);
+        emit_text(view.overlay_text, *font, score_text,
+                  {vp.x - tsize.x - 16.0f * scale, 12.0f * scale}, ts,
+                  {0.91f, 0.85f, 0.69f, 0.9f});
     }
 
     // Dash cooldown pip under the health bar.

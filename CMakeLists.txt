@@ -54,6 +54,7 @@ add_executable(dragonslayr
   src/platform/audio.cpp
   src/render/texture_load.cpp
   src/render/dungeon_mesh.cpp
+  src/render/font.cpp
   src/render/gpu_device.cpp
   src/render/gpu_renderer.cpp
   src/render/debug_ui.cpp
@@ -90,8 +91,10 @@ add_executable(ds_tests
   tests/test_combat.cpp
   tests/test_spawn.cpp
   tests/test_enemy_ai.cpp
+  tests/test_font.cpp
   src/render/texture_load.cpp
   src/render/dungeon_mesh.cpp
+  src/render/font.cpp
 )
 target_link_libraries(ds_tests PRIVATE ds_warnings ds_sim ds_stb doctest::doctest)
 

@@ -18,6 +18,7 @@ public:
     void set_world_textures(std::span<const Image> layers) override;
     void set_sprite_textures(std::span<const Image> layers) override;
     void set_overlay_textures(std::span<const Image> layers) override;
+    void set_font_texture(const Image& image) override;
     void set_dungeon_mesh(const MeshData& mesh) override;
     void render(const FrameView& view) override;
 
@@ -53,6 +54,7 @@ private:
 
     SDL_GPUGraphicsPipeline* overlay_pipeline_ = nullptr;
     SDL_GPUTexture* overlay_atlas_ = nullptr;
+    SDL_GPUTexture* font_texture_ = nullptr;
     SDL_GPUSampler* clamp_sampler_ = nullptr;
     SDL_GPUBuffer* overlay_instances_ = nullptr;
     SDL_GPUTransferBuffer* overlay_transfer_ = nullptr;

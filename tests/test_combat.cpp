@@ -152,9 +152,27 @@ TEST_CASE("bolts fly, hit the first enemy and expire on walls") {
     CHECK(world.reg.get<Health>(target).hp == 7.0f); // 12 - 5
 }
 
+TEST_CASE("player damage records the attack direction") {
+    World world = make_world();
+    const glm::vec2 p = world.reg.get<Transform>(world.player).pos;
+
+    damage_player(world, 5.0f, 0, p + glm::vec2{1.0f, 0.0f}); // hit from +X
+    damage_player(world, 5.0f, 0, p + glm::vec2{0.0f, 2.0f}); // hit from +Y
+
+    std::vector<float> yaws;
+    for (const TelemetryEvent& ev : world.telem.events()) {
+        if (ev.type == EvType::PlayerDamaged) {
+            yaws.push_back(ev.yaw);
+        }
+    }
+    REQUIRE(yaws.size() == 2);
+    CHECK(yaws[0] == doctest::Approx(0.0f));
+    CHECK(yaws[1] == doctest::Approx(glm::half_pi<float>()));
+}
+
 TEST_CASE("player death freezes the run and records run_end") {
     World world = make_world();
-    damage_player(world, 250.0f, 0);
+    damage_player(world, 250.0f, 0, {0.0f, 0.0f});
     CHECK(world.player_dead);
     CHECK(world.reg.get<Health>(world.player).hp == 0.0f);
     CHECK(count_events(world, EvType::RunEnd) == 1);
@@ -173,7 +191,7 @@ TEST_CASE("god mode blocks damage and counts as a cheat") {
     World world = make_world();
     std::string fb;
     con_execute("sv.god 1", fb);
-    damage_player(world, 50.0f, 0);
+    damage_player(world, 50.0f, 0, {0.0f, 0.0f});
     CHECK_FALSE(world.player_dead);
     CHECK(world.reg.get<Health>(world.player).hp == 100.0f);
     CHECK(cvar_any_cheat_touched());

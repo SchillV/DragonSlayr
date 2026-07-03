@@ -49,6 +49,15 @@ std::vector<int16_t> synth_arpeggio(float volume) {
     return out;
 }
 
+// Classic lub-dub: two low thumps with a short gap.
+std::vector<int16_t> synth_heartbeat(float volume) {
+    std::vector<int16_t> out = synth_blip(66.0f, 48.0f, 0.10f, volume, 0.04f);
+    out.resize(out.size() + static_cast<size_t>(kRate * 0.07f), 0);
+    const auto dub = synth_blip(56.0f, 44.0f, 0.13f, volume * 0.8f, 0.04f);
+    out.insert(out.end(), dub.begin(), dub.end());
+    return out;
+}
+
 struct Voice {
     ma_audio_buffer buffer{};
     ma_sound sound{};
@@ -94,6 +103,7 @@ bool Audio::init(const std::filesystem::path& sounds_dir) {
         {"hurt", synth_blip(110.0f, 70.0f, 0.30f, 0.40f, 0.30f)},
         {"kill", synth_arpeggio(0.30f)},
         {"dash", synth_blip(500.0f, 900.0f, 0.15f, 0.18f, 0.65f)},
+        {"heartbeat", synth_heartbeat(0.45f)},
     };
 
     for (auto& def : defs) {

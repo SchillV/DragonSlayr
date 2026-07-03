@@ -32,12 +32,58 @@ void push_textured(FrameView& view, glm::vec2 pos, glm::vec2 size, float layer, 
 
 } // namespace
 
+float indicator_screen_rot(float attack_world_angle, float cam_yaw) {
+    const float two_pi = glm::two_pi<float>();
+    float d = std::fmod(attack_world_angle - cam_yaw + glm::pi<float>(), two_pi);
+    if (d < 0.0f) {
+        d += two_pi;
+    }
+    return d - glm::pi<float>();
+}
+
 void build_hud(FrameView& view, const HudState& state, glm::vec2 vp, const FontAtlas* font) {
     const float scale = std::max(1.0f, std::round(vp.y / 360.0f)); // retro pixel scale
+    const float hp_frac =
+        state.max_hp > 0.0f ? std::clamp(state.hp / state.max_hp, 0.0f, 1.0f) : 0.0f;
 
     // Hurt flash (under everything else so the HUD stays readable).
     if (state.hurt_flash > 0.0f) {
         push_solid(view, {0, 0}, vp, {0.8f, 0.05f, 0.05f, state.hurt_flash * 0.35f});
+    }
+
+    // Low-health warning: pulsing red border, faster and stronger as HP drops.
+    if (!state.dead && hp_frac < state.lowhp_threshold && state.lowhp_threshold > 0.0f) {
+        const float severity = 1.0f - hp_frac / state.lowhp_threshold; // 0..1
+        const float pulse_hz = 1.2f + 2.2f * severity;
+        const float pulse =
+            0.6f + 0.4f * static_cast<float>(std::sin(state.time * pulse_hz * glm::two_pi<float>()));
+        const float alpha = (0.18f + 0.30f * severity) * pulse;
+        const glm::vec4 col{0.75f, 0.05f, 0.05f, alpha};
+        const float th = vp.y * 0.045f;
+        push_solid(view, {0, 0}, {vp.x, th}, col);
+        push_solid(view, {0, vp.y - th}, {vp.x, th}, col);
+        push_solid(view, {0, th}, {th, vp.y - 2.0f * th}, col);
+        push_solid(view, {vp.x - th, th}, {th, vp.y - 2.0f * th}, col);
+    }
+
+    // Directional damage indicators: radial bars around the crosshair pointing
+    // at whoever hit you; they track as you turn and fade out.
+    for (const DamageIndicator& ind : state.indicators) {
+        if (ind.t <= 0.0f) {
+            continue;
+        }
+        const float rot = indicator_screen_rot(ind.world_angle, state.cam_yaw);
+        const float radius = 90.0f * scale;
+        const glm::vec2 center = vp * 0.5f;
+        const glm::vec2 dir{std::sin(rot), -std::cos(rot)}; // rot 0 = up
+        const glm::vec2 size{10.0f * scale, 26.0f * scale};
+        OverlayQuad q;
+        q.pos = center + dir * radius - size * 0.5f;
+        q.size = size;
+        q.rot = rot;
+        q.layer = kOverlayWhite;
+        q.color = {0.92f, 0.12f, 0.08f, 0.85f * std::min(ind.t * 2.0f, 1.0f)};
+        view.overlay.push_back(q);
     }
 
     // Viewmodel: sword bottom-right, lunging up-left mid-swing; casting hand
@@ -70,15 +116,50 @@ void build_hud(FrameView& view, const HudState& state, glm::vec2 vp, const FontA
         push_solid(view, {c.x - t * 0.5f, c.y + gap}, {t, len}, col);
     }
 
-    // Health bar, bottom-left.
+    // Hitmarker: an X of four diagonal ticks when your hit lands; kills get a
+    // bigger, red, slower-fading variant.
+    if (state.hitmarker_t > 0.0f) {
+        const glm::vec2 c = vp * 0.5f;
+        const float boost = state.hitmarker_kill ? 1.6f : 1.0f;
+        const glm::vec4 col = state.hitmarker_kill
+                                  ? glm::vec4{0.95f, 0.15f, 0.1f, 0.95f * state.hitmarker_t}
+                                  : glm::vec4{1.0f, 1.0f, 1.0f, 0.9f * state.hitmarker_t};
+        const float r = (8.0f + 3.0f * (1.0f - state.hitmarker_t)) * scale * boost;
+        const glm::vec2 size{2.5f * scale * boost, 7.0f * scale * boost};
+        for (int i = 0; i < 4; ++i) {
+            const float a = glm::quarter_pi<float>() + glm::half_pi<float>() * static_cast<float>(i);
+            OverlayQuad q;
+            q.pos = c + glm::vec2{std::sin(a), -std::cos(a)} * r - size * 0.5f;
+            q.size = size;
+            q.rot = a;
+            q.layer = kOverlayWhite;
+            q.color = col;
+            view.overlay.push_back(q);
+        }
+    }
+
+    // Health bar, bottom-left, with a white "chip" showing damage just taken.
     {
         const glm::vec2 size{180.0f * scale, 14.0f * scale};
         const glm::vec2 pos{16.0f * scale, vp.y - size.y - 16.0f * scale};
-        const float frac = state.max_hp > 0.0f ? std::clamp(state.hp / state.max_hp, 0.0f, 1.0f) : 0.0f;
+        const float frac = hp_frac;
         push_solid(view, pos - glm::vec2{2.0f * scale}, size + glm::vec2{4.0f * scale},
                    {0.0f, 0.0f, 0.0f, 0.6f});
+
+        const float chip_frac =
+            state.max_hp > 0.0f ? std::clamp(state.chip_hp / state.max_hp, 0.0f, 1.0f) : 0.0f;
+        if (chip_frac > frac) {
+            push_solid(view, {pos.x + size.x * frac, pos.y}, {size.x * (chip_frac - frac), size.y},
+                       {0.95f, 0.9f, 0.85f, 0.85f});
+        }
+
+        float bar_alpha = 0.95f;
+        if (!state.dead && frac < state.lowhp_threshold) {
+            bar_alpha = 0.65f + 0.3f * static_cast<float>(
+                                           std::sin(state.time * 6.0 * glm::two_pi<double>()) * 0.5 + 0.5);
+        }
         push_solid(view, pos, {size.x * frac, size.y},
-                   {0.75f + 0.25f * (1.0f - frac), 0.15f + 0.45f * frac, 0.12f, 0.95f});
+                   {0.75f + 0.25f * (1.0f - frac), 0.15f + 0.45f * frac, 0.12f, bar_alpha});
 
         if (font && font->valid()) {
             const std::string hp_text =
@@ -92,7 +173,7 @@ void build_hud(FrameView& view, const HudState& state, glm::vec2 vp, const FontA
         }
     }
 
-    // Score, top-right (parchment tone from the Ember design language).
+    // Score, top-right.
     if (font && font->valid()) {
         const std::string score_text = std::format("SCORE {}", state.score);
         const float ts = scale;

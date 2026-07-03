@@ -141,6 +141,7 @@ std::filesystem::path TelemetryRecorder::write_json(const std::filesystem::path&
             e["dmg"] = ev.a;
             e["hp_after"] = ev.b;
             e["pos"] = {ev.x, ev.y};
+            e["from_yaw"] = ev.yaw; // world-space direction the hit came from
             break;
         case EvType::PlayerDash:
             e["dir"] = {ev.a, ev.b};

@@ -179,7 +179,7 @@ void projectiles_update(World& world, float dt) {
         } else if (!world.player_dead) {
             const float reach = proj.radius + player_r;
             if (seg_point_dist2(tr.pos, next, player_pos) <= reach * reach) {
-                damage_player(world, proj.damage, proj.src_def); // records PlayerDamaged
+                damage_player(world, proj.damage, proj.src_def, tr.pos); // records PlayerDamaged
                 world.reg.emplace_or_replace<Doomed>(e);
                 consumed = true;
             }
@@ -235,7 +235,7 @@ void damage_enemy(World& world, entt::entity enemy_e, float amount, int weapon_i
     world.reg.emplace_or_replace<Doomed>(enemy_e);
 }
 
-void damage_player(World& world, float amount, uint16_t src_def) {
+void damage_player(World& world, float amount, uint16_t src_def, glm::vec2 src_pos) {
     if (sv_god.as_bool() || world.player_dead) {
         return;
     }
@@ -246,6 +246,7 @@ void damage_player(World& world, float amount, uint16_t src_def) {
     hp.hp -= amount;
     pl.hurt_flash = 1.0f;
 
+    const glm::vec2 from = src_pos - tr.pos;
     TelemetryEvent ev;
     ev.tick = static_cast<uint32_t>(world.tick_count);
     ev.type = EvType::PlayerDamaged;
@@ -254,6 +255,8 @@ void damage_player(World& world, float amount, uint16_t src_def) {
     ev.b = std::max(hp.hp, 0.0f);
     ev.x = tr.pos.x;
     ev.y = tr.pos.y;
+    // World-space direction the hit came FROM — drives the HUD damage wedge.
+    ev.yaw = glm::dot(from, from) > 1e-8f ? std::atan2(from.y, from.x) : tr.yaw;
     world.telem.record(ev);
 
     if (hp.hp <= 0.0f) {

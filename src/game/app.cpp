@@ -39,6 +39,10 @@ CVar& r_fov = cvar_register("r.fov", 75.0f, "vertical field of view, degrees (66
 CVar& r_eye_height = cvar_register("r.eye_height", 0.55f, "camera height above the floor, tiles");
 CVar& in_sensitivity = cvar_register("in.sensitivity", 2.2f, "mouselook, radians per 1000 px");
 CVar& fs_hot_reload = cvar_register("fs.hot_reload", 1.0f, "poll data JSONs for changes");
+CVar& fx_shake = cvar_register("fx.shake", 1.0f, "camera kick scale (0 disables)");
+CVar& fx_indicator_ttl = cvar_register("fx.indicator_ttl", 1.0f, "damage direction indicator lifetime, s");
+CVar& fx_lowhp = cvar_register("fx.lowhp_threshold", 0.3f, "low-health warning threshold, fraction of max hp");
+CVar& fx_hitmarker = cvar_register("fx.hitmarker", 1.0f, "hitmarker flashes (0 disables)");
 
 using Clock = std::chrono::steady_clock;
 
@@ -428,6 +432,16 @@ int App::run_windowed(Platform& platform) {
     bool was_dead = false;
     bool run_recorded = false; // telemetry written for the current run
 
+    // Combat-feedback state: render-side only, fed by the telemetry stream.
+    std::vector<DamageIndicator> fx_indicators;
+    float fx_hitmarker_t = 0.0f;
+    bool fx_hitmarker_kill = false;
+    glm::vec2 fx_kick{0.0f};    // yaw/pitch camera impulse, decays exponentially
+    float fx_chip_hp = -1.0f;   // trailing health-bar chip value
+    float fx_chip_delay = 0.0f; // pause before the chip starts draining
+    double fx_heartbeat_timer = 0.0;
+    double run_time = 0.0; // drives HUD pulsing
+
     auto write_telemetry = [&](std::string_view outcome) {
         if (run_recorded || world.tick_count < 60) {
             return; // nothing meaningful happened
@@ -448,6 +462,12 @@ int App::run_windowed(Platform& platform) {
         telem_cursor = 0;
         was_dead = false;
         run_recorded = false;
+        fx_indicators.clear();
+        fx_hitmarker_t = 0.0f;
+        fx_kick = {0.0f, 0.0f};
+        fx_chip_hp = world.reg.get<Health>(world.player).hp;
+        fx_chip_delay = 0.0f;
+        fx_heartbeat_timer = 0.0;
         log_info("dungeon generated: seed={} rooms={} enemy spawns={}", seed,
                  world.dungeon.rooms.size(), world.dungeon.enemy_spawns.size());
     };
@@ -540,19 +560,83 @@ int App::run_windowed(Platform& platform) {
             acc -= kTickDt;
         }
 
-        // Sounds ride the telemetry stream — one event system for everything.
+        // Sounds and combat feedback both ride the telemetry stream — one
+        // event system for everything.
         world.telem.drain_since(telem_cursor, fresh_events);
         for (const TelemetryEvent& ev : fresh_events) {
             switch (ev.type) {
-            case EvType::PlayerAttack: audio.play("swing"); break;
+            case EvType::PlayerAttack:
+                audio.play("swing");
+                if ((ev.flags & 1u) && fx_hitmarker.as_bool()) {
+                    fx_hitmarker_t = 1.0f;
+                    fx_hitmarker_kill = false;
+                    fx_kick.y -= 0.006f * fx_shake.value; // tiny forward punch
+                }
+                break;
             case EvType::ProjectileFired: audio.play("bolt_fire"); break;
             case EvType::ProjectileHit:
-                if (ev.def != 0xffff) audio.play("hit");
+                if (ev.def != 0xffff) {
+                    audio.play("hit");
+                    if (fx_hitmarker.as_bool()) {
+                        fx_hitmarker_t = 1.0f;
+                        fx_hitmarker_kill = false;
+                    }
+                }
                 break;
-            case EvType::PlayerDamaged: audio.play("hurt"); break;
-            case EvType::EnemyKilled: audio.play("kill"); break;
+            case EvType::PlayerDamaged: {
+                audio.play("hurt");
+                fx_indicators.push_back({ev.yaw, 1.0f});
+                fx_chip_delay = 0.6f;
+                // Kick the camera up and away from the hit.
+                const float rel = indicator_screen_rot(ev.yaw, cam_yaw);
+                fx_kick.x += -std::sin(rel) * 0.02f * fx_shake.value;
+                fx_kick.y += 0.022f * fx_shake.value;
+                break;
+            }
+            case EvType::EnemyKilled:
+                audio.play("kill");
+                if (fx_hitmarker.as_bool()) {
+                    fx_hitmarker_t = 1.0f;
+                    fx_hitmarker_kill = true;
+                }
+                break;
             case EvType::PlayerDash: audio.play("dash"); break;
             default: break;
+            }
+        }
+
+        // Per-frame feedback decay + low-health heartbeat.
+        {
+            const auto fdt = static_cast<float>(frame_dt);
+            run_time += frame_dt;
+            for (DamageIndicator& ind : fx_indicators) {
+                ind.t -= fdt / std::max(fx_indicator_ttl.value, 0.05f);
+            }
+            std::erase_if(fx_indicators, [](const DamageIndicator& i) { return i.t <= 0.0f; });
+            fx_hitmarker_t =
+                std::max(0.0f, fx_hitmarker_t - fdt / (fx_hitmarker_kill ? 0.35f : 0.18f));
+            fx_kick *= std::exp(-fdt * 10.0f);
+
+            const auto& php = world.reg.get<Health>(world.player);
+            if (fx_chip_hp < php.hp) {
+                fx_chip_hp = php.hp; // heal / restart snaps the chip up instantly
+            }
+            fx_chip_delay = std::max(0.0f, fx_chip_delay - fdt);
+            if (fx_chip_delay <= 0.0f && fx_chip_hp > php.hp) {
+                fx_chip_hp =
+                    std::max(php.hp, fx_chip_hp - (fx_chip_hp - php.hp + 20.0f) * fdt * 3.0f);
+            }
+
+            const float hfrac = php.max_hp > 0.0f ? php.hp / php.max_hp : 0.0f;
+            if (!world.player_dead && hfrac < fx_lowhp.value) {
+                fx_heartbeat_timer -= frame_dt;
+                if (fx_heartbeat_timer <= 0.0) {
+                    audio.play("heartbeat");
+                    const float severity = 1.0f - hfrac / fx_lowhp.value;
+                    fx_heartbeat_timer = 1.1 - 0.65 * static_cast<double>(severity);
+                }
+            } else {
+                fx_heartbeat_timer = 0.0;
             }
         }
 
@@ -586,9 +670,10 @@ int App::run_windowed(Platform& platform) {
 
         FrameView view;
         view.camera.pos = {pos.x, r_eye_height.value, pos.y};
-        view.camera.yaw = cam_yaw;
-        view.camera.pitch = cam_pitch;
+        view.camera.yaw = cam_yaw + fx_kick.x; // render-only kick; sim aim unaffected
+        view.camera.pitch = std::clamp(cam_pitch + fx_kick.y, -kMaxPitch, kMaxPitch);
         view.camera.fov_deg = std::clamp(r_fov.value, 66.0f, 110.0f);
+        view.time = run_time;
         for (auto [e, enemy, etr, eprev] :
              world.reg.view<const Enemy, const Transform, const PrevTransform>().each()) {
             const EnemyDef& def = world.content.enemies[enemy.def];
@@ -633,6 +718,13 @@ int App::run_windowed(Platform& platform) {
                 dash_cd && dash_cd->value > 0.0f ? pl.dash_cooldown / dash_cd->value : 0.0f;
             hud.dead = world.player_dead;
             hud.score = world.score;
+            hud.cam_yaw = cam_yaw;
+            hud.time = run_time;
+            hud.chip_hp = fx_chip_hp;
+            hud.hitmarker_t = fx_hitmarker_t;
+            hud.hitmarker_kill = fx_hitmarker_kill;
+            hud.lowhp_threshold = std::clamp(fx_lowhp.value, 0.0f, 1.0f);
+            hud.indicators = fx_indicators;
             int pw = 0, ph = 0;
             SDL_GetWindowSizeInPixels(window, &pw, &ph);
             build_hud(view, hud, {static_cast<float>(pw), static_cast<float>(ph)}, &font);

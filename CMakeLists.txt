@@ -92,9 +92,11 @@ add_executable(ds_tests
   tests/test_spawn.cpp
   tests/test_enemy_ai.cpp
   tests/test_font.cpp
+  tests/test_fx.cpp
   src/render/texture_load.cpp
   src/render/dungeon_mesh.cpp
   src/render/font.cpp
+  src/game/hud.cpp
 )
 target_link_libraries(ds_tests PRIVATE ds_warnings ds_sim ds_stb doctest::doctest)
 

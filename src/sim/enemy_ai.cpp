@@ -85,7 +85,7 @@ bool resolve_attack(World& world, Enemy& enemy, const EnemyDef& def, Transform& 
     switch (def.behavior) {
     case EnemyBehavior::Chaser:
         if (dist <= def.attack.range * def.attack.dodge_window_mult && los) {
-            damage_player(world, def.attack.damage, enemy.def);
+            damage_player(world, def.attack.damage, enemy.def, tr.pos);
         }
         return false;
     case EnemyBehavior::Ranged:
@@ -162,7 +162,7 @@ void enemy_ai_think(World& world, float dt) {
             vel.v = enemy.lunge_dir * def.lunge_speed;
             const float contact = def.radius + 0.6f; // physical reach, not firing range
             if (dist <= contact && los) {
-                damage_player(world, def.attack.damage, enemy.def);
+                damage_player(world, def.attack.damage, enemy.def, tr.pos);
                 enemy.state = AiState::Recover;
                 enemy.state_time = def.attack.recovery_s;
             } else if (enemy.state_time <= 0.0f) {

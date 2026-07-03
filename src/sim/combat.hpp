@@ -32,8 +32,10 @@ void projectiles_update(World& world, float dt);
 void damage_enemy(World& world, entt::entity enemy, float amount, int weapon_idx);
 
 // Player damage with god-mode, hurt flash, telemetry and death handling.
-// Called by enemy attacks (enemy_ai) and anything hazardous later.
-void damage_player(World& world, float amount, uint16_t src_def);
+// Called by enemy attacks (enemy_ai) and anything hazardous later. `src_pos`
+// is where the hit came from; the PlayerDamaged event stores the attack
+// direction so the HUD can point at the attacker.
+void damage_player(World& world, float amount, uint16_t src_def, glm::vec2 src_pos);
 
 // Removes expired and killed entities. Runs at the end of the tick.
 void cleanup_dead(World& world, float dt);

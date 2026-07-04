@@ -3,6 +3,7 @@
 #include "core/cvar.hpp"
 #include "core/log.hpp"
 #include "game/hud.hpp"
+#include "game/menu.hpp"
 #include "platform/audio.hpp"
 #include "platform/input.hpp"
 #include "platform/platform.hpp"
@@ -43,6 +44,10 @@ CVar& fx_shake = cvar_register("fx.shake", 1.0f, "camera kick scale (0 disables)
 CVar& fx_indicator_ttl = cvar_register("fx.indicator_ttl", 1.0f, "damage direction indicator lifetime, s");
 CVar& fx_lowhp = cvar_register("fx.lowhp_threshold", 0.3f, "low-health warning threshold, fraction of max hp");
 CVar& fx_hitmarker = cvar_register("fx.hitmarker", 1.0f, "hitmarker flashes (0 disables)");
+CVar& snd_volume = cvar_register("snd.volume", 0.8f, "master volume, 0-1");
+
+// Which mode the windowed session is in; the sim only ticks while Playing.
+enum class GamePhase : uint8_t { Title, Playing, Paused, Dead };
 
 using Clock = std::chrono::steady_clock;
 
@@ -493,12 +498,29 @@ int App::run_windowed(Platform& platform) {
         fb = std::format("noclip {}", cv->as_bool() ? "ON [CHEAT]" : "off");
     });
 
-    SDL_SetWindowRelativeMouseMode(window, true);
+    // Menu / phase state. The game boots onto the Title screen over a live
+    // dungeon backdrop; the sim only ticks while Playing.
+    GamePhase phase = GamePhase::Title;
+    MenuSystem menu;
+    float applied_volume = -1.0f;
+    glm::vec2 last_mouse_px{-1.0f, -1.0f};
+    auto enter_playing = [&] {
+        menu.close();
+        phase = GamePhase::Playing;
+        SDL_SetWindowRelativeMouseMode(window, true);
+    };
+    auto open_menu = [&](MenuScreen s, GamePhase p) {
+        menu.open(s);
+        phase = p;
+        SDL_SetWindowRelativeMouseMode(window, false);
+    };
+    open_menu(MenuScreen::Title, GamePhase::Title);
 
     auto prev = Clock::now();
     double acc = 0.0;
 
     while (running) {
+        MenuInput menu_input;
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
             const bool ui_captured = ui.process_event(ev);
@@ -513,11 +535,21 @@ int App::run_windowed(Platform& platform) {
                 const float sens = in_sensitivity.value / 1000.0f;
                 cam_yaw += ev.motion.xrel * sens;
                 cam_pitch = std::clamp(cam_pitch - ev.motion.yrel * sens, -kMaxPitch, kMaxPitch);
-            } else if (ev.type == SDL_EVENT_KEY_DOWN && !ui_captured && ev.key.key == SDLK_ESCAPE) {
-                running = false;
-            } else if (ev.type == SDL_EVENT_KEY_DOWN && !ui_captured && ev.key.key == SDLK_R &&
-                       world.player_dead) {
-                regenerate(seed + 1); // fresh run, fresh floor
+            } else if (ev.type == SDL_EVENT_KEY_DOWN && !ui_captured) {
+                const SDL_Keycode k = ev.key.key;
+                if (menu.active()) {
+                    menu_input.up |= k == SDLK_UP || k == SDLK_W;
+                    menu_input.down |= k == SDLK_DOWN || k == SDLK_S;
+                    menu_input.left |= k == SDLK_LEFT || k == SDLK_A;
+                    menu_input.right |= k == SDLK_RIGHT || k == SDLK_D;
+                    menu_input.select |= k == SDLK_RETURN || k == SDLK_SPACE;
+                    menu_input.back |= k == SDLK_ESCAPE;
+                } else if (k == SDLK_ESCAPE && phase == GamePhase::Playing) {
+                    open_menu(MenuScreen::Pause, GamePhase::Paused);
+                }
+            } else if (ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
+                       ev.button.button == SDL_BUTTON_LEFT && menu.active() && !ui_captured) {
+                menu_input.click = true;
             }
         }
 
@@ -553,11 +585,63 @@ int App::run_windowed(Platform& platform) {
             }
         }
 
-        acc += frame_dt;
-        while (acc >= kTickDt) {
-            const PlayerCmd cmd = input.make_cmd(cam_yaw, cam_pitch);
-            world.tick(cmd, static_cast<float>(kTickDt));
-            acc -= kTickDt;
+        // Master volume, applied live from the settings cvar.
+        if (snd_volume.value != applied_volume) {
+            applied_volume = snd_volume.value;
+            audio.set_volume(applied_volume);
+        }
+
+        // Menu navigation, mouse hit-testing and action dispatch.
+        if (menu.active()) {
+            int pw = 0, ph = 0;
+            SDL_GetWindowSizeInPixels(window, &pw, &ph);
+            const glm::vec2 mvp{static_cast<float>(pw), static_cast<float>(ph)};
+            if (!SDL_GetWindowRelativeMouseMode(window)) {
+                float wx = 0.0f, wy = 0.0f;
+                SDL_GetMouseState(&wx, &wy);
+                int lw = 0, lh = 0;
+                SDL_GetWindowSize(window, &lw, &lh);
+                const glm::vec2 mpx{wx * (lw > 0 ? mvp.x / static_cast<float>(lw) : 1.0f),
+                                    wy * (lh > 0 ? mvp.y / static_cast<float>(lh) : 1.0f)};
+                menu_input.mouse_px = mpx;
+                menu_input.mouse_moved = glm::distance(mpx, last_mouse_px) > 0.5f;
+                last_mouse_px = mpx;
+            }
+            switch (menu.update(menu_input, mvp)) {
+            case MenuAction::StartRun:
+            case MenuAction::Restart:
+                regenerate(seed + 1);
+                enter_playing();
+                break;
+            case MenuAction::Resume:
+                enter_playing();
+                break;
+            case MenuAction::QuitToTitle:
+                regenerate(seed + 1);
+                open_menu(MenuScreen::Title, GamePhase::Title);
+                break;
+            case MenuAction::QuitGame:
+                running = false;
+                break;
+            case MenuAction::None:
+                break;
+            }
+        }
+
+        // The simulation only advances while actively playing.
+        if (phase == GamePhase::Playing) {
+            acc += frame_dt;
+            while (acc >= kTickDt) {
+                const PlayerCmd cmd = input.make_cmd(cam_yaw, cam_pitch);
+                world.tick(cmd, static_cast<float>(kTickDt));
+                acc -= kTickDt;
+            }
+            if (world.player_dead) {
+                open_menu(MenuScreen::Death, GamePhase::Dead); // death → death screen
+                menu.set_status_line(std::format("FINAL SCORE  {}", world.score));
+            }
+        } else {
+            acc = 0.0;
         }
 
         // Sounds and combat feedback both ride the telemetry stream — one
@@ -663,15 +747,17 @@ int App::run_windowed(Platform& platform) {
         ui_state.player_speed = speed;
         ui_state.seed = seed;
         ui_state.regenerate = regenerate;
-        if (world.player_dead) {
-            ui_state.center_message = "YOU DIED\npress R to delve again";
-        }
         ui.build(ui_state);
 
         FrameView view;
         view.camera.pos = {pos.x, r_eye_height.value, pos.y};
         view.camera.yaw = cam_yaw + fx_kick.x; // render-only kick; sim aim unaffected
         view.camera.pitch = std::clamp(cam_pitch + fx_kick.y, -kMaxPitch, kMaxPitch);
+        if (phase == GamePhase::Title) {
+            // Slow idle spin at the spawn point as a live backdrop for the title.
+            view.camera.yaw = static_cast<float>(run_time) * 0.25f;
+            view.camera.pitch = -0.08f;
+        }
         view.camera.fov_deg = std::clamp(r_fov.value, 66.0f, 110.0f);
         view.time = run_time;
         for (auto [e, enemy, etr, eprev] :
@@ -727,7 +813,14 @@ int App::run_windowed(Platform& platform) {
             hud.indicators = fx_indicators;
             int pw = 0, ph = 0;
             SDL_GetWindowSizeInPixels(window, &pw, &ph);
-            build_hud(view, hud, {static_cast<float>(pw), static_cast<float>(ph)}, &font);
+            if (phase != GamePhase::Title) { // no gameplay HUD behind the title
+                build_hud(view, hud, {static_cast<float>(pw), static_cast<float>(ph)}, &font);
+            }
+        }
+
+        // Menus draw on top of the (dimmed) world (viewport set by update()).
+        if (menu.active()) {
+            menu.render(view, font);
         }
         renderer.render(view);
 

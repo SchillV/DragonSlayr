@@ -53,8 +53,9 @@ cmake --preset headless && cmake --build --preset headless && ctest --preset hea
 
 ## Git / workflow
 
-- Develop on the feature branch `claude/optimistic-goldberg-lv6v3d`; commit per milestone with
-  descriptive messages; commit identity `Claude <noreply@anthropic.com>`.
+- **Develop on `dev`** (the owner merges to `main`). Commit per milestone with descriptive
+  messages; commit identity `Claude <noreply@anthropic.com>`. (Earliest history landed on
+  `claude/optimistic-goldberg-lv6v3d`, now merged.)
 - **Known infra issue:** in the web environment the git proxy pushes under a fixed identity that
   currently lacks write access (push 403 "denied to SchillV"); a user-pasted PAT in the URL is
   *not* consumed by the proxy. Pushing needs the Claude Code GitHub integration to be granted

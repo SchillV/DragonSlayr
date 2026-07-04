@@ -14,8 +14,12 @@ public:
     void shutdown();
     ~Audio();
 
-    // Known names: swing, bolt_fire, hit, hurt, kill, dash. Unknown = no-op.
+    // Known names: swing, bolt_fire, hit, hurt, kill, dash, heartbeat.
+    // Unknown = no-op.
     void play(std::string_view name);
+
+    // Master volume, 0..1.
+    void set_volume(float volume);
 
 private:
     struct Impl;

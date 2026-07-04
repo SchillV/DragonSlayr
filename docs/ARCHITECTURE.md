@@ -134,6 +134,27 @@ stages the `.spv` files beside the executable so they're found on every build la
 strict SPIR-V binding-set conventions (vertex samplers `set=0`/UBOs `set=1`, fragment samplers
 `set=2`/UBOs `set=3`) — there's a reminder comment at the top of every shader.
 
+## UI: text, HUD, and menus
+
+Player-facing UI is the game's own, not ImGui (which is debug-only). It all rides the **overlay
+pipeline** — 2D screen-space quads with optional per-quad rotation, drawn after the world.
+
+- **Text** (`src/render/font.hpp`) is a CPU-baked glyph atlas: the embedded public-domain 8x8
+  pixel font by default, or any `assets/fonts/*.ttf` baked via stb_truetype at startup.
+  `emit_text` lays a string out into overlay quads sampling that atlas (`FrameView::overlay_text`,
+  drawn as a second instance range against the font texture). Baking and layout are pure and
+  unit-tested.
+- **HUD** (`src/game/hud.cpp`) builds crosshair, health bar (+ damage chip), viewmodel, and the
+  combat-feedback layer — directional damage wedges (rotated quads that track the attacker),
+  hitmarkers, low-health vignette — from a `HudState` snapshot each frame. It's fed by the same
+  telemetry drain that drives audio; all of it tunes/disables via `fx.*` cvars.
+- **Menus** (`src/game/menu.hpp`) are an SDL-free `MenuSystem`: a screen stack (Title / Pause /
+  Settings / Death) of immediate-mode items (buttons, cvar-bound sliders). The app feeds it a
+  plain `MenuInput` (keyboard edges + mouse) and executes the returned `MenuAction`; the whole
+  state machine is unit-tested. `app.cpp` drives a `GamePhase` (Title / Playing / Paused / Dead) —
+  the sim only ticks while Playing, and Title renders over a slow idle-cam dungeon backdrop.
+  Styling follows the owner's "Ember" design language; it re-skins without touching the logic.
+
 ## Telemetry (the boss-learning seam)
 
 Every combat-relevant action — attacks, projectile fires/hits, damage taken, dashes, kills (with

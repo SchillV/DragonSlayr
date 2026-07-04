@@ -160,6 +160,12 @@ void Audio::shutdown() {
     impl_ = nullptr;
 }
 
+void Audio::set_volume(float volume) {
+    if (impl_ && impl_->engine_ok) {
+        ma_engine_set_volume(&impl_->engine, std::clamp(volume, 0.0f, 1.0f));
+    }
+}
+
 void Audio::play(std::string_view name) {
     if (!impl_) {
         return;

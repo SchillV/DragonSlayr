@@ -62,6 +62,18 @@ struct WeaponDef {
     std::string sound;
 };
 
+// Linear id lookup shared by every content category (rosters are small; a
+// hash map would be overkill and would hurt hot-reload index stability).
+template <typename Def>
+int find_by_id(const std::vector<Def>& defs, std::string_view id) {
+    for (size_t i = 0; i < defs.size(); ++i) {
+        if (defs[i].id == id) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
 // All data-driven definitions. String ids are interned to indices at load;
 // live entities hold indices, which is what makes hot reload instant.
 struct ContentDB {

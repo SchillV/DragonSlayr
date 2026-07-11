@@ -6,6 +6,7 @@
 #include "sim/combat.hpp"
 #include "sim/components.hpp"
 #include "sim/enemy_ai.hpp"
+#include "sim/items.hpp"
 #include "sim/stats.hpp"
 
 #include <algorithm>
@@ -88,6 +89,15 @@ void World::init_from_dungeon(DungeonResult d, uint64_t s) {
         log_warn("no enemy is eligible to spawn on floor {} (check spawn_weight/min_floor)",
                  current_floor);
     }
+
+    // Item spots draw from the same weighted-table mechanism as enemies.
+    for (const glm::ivec2 sp : dungeon.item_spawns) {
+        const int item_index = pick_item_for_floor(content, current_floor, rng);
+        if (item_index < 0) {
+            break;
+        }
+        spawn_pickup(item_index, {static_cast<float>(sp.x) + 0.5f, static_cast<float>(sp.y) + 0.5f});
+    }
 }
 
 entt::entity World::spawn_enemy(int def_index, glm::vec2 pos) {
@@ -105,30 +115,15 @@ entt::entity World::spawn_enemy(int def_index, glm::vec2 pos) {
     return e;
 }
 
-int pick_enemy_for_floor(const ContentDB& content, int floor, Rng& rng) {
-    auto eligible = [&](const EnemyDef& d) { return d.min_floor <= floor && d.spawn_weight > 0.0f; };
-    float total = 0.0f;
-    for (const EnemyDef& d : content.enemies) {
-        if (eligible(d)) {
-            total += d.spawn_weight;
-        }
-    }
-    if (total <= 0.0f) {
-        return -1;
-    }
-    float roll = rng.next_float01() * total;
-    int last = -1;
-    for (size_t i = 0; i < content.enemies.size(); ++i) {
-        if (!eligible(content.enemies[i])) {
-            continue;
-        }
-        last = static_cast<int>(i);
-        roll -= content.enemies[i].spawn_weight;
-        if (roll <= 0.0f) {
-            return static_cast<int>(i);
-        }
-    }
-    return last; // float rounding fallthrough → last eligible def
+entt::entity World::spawn_pickup(int item_index, glm::vec2 pos) {
+    const entt::entity e = reg.create();
+    reg.emplace<Transform>(e, pos, 0.0f);
+    reg.emplace<PrevTransform>(e, pos, 0.0f);
+    Pickup pk;
+    pk.item = static_cast<uint16_t>(item_index);
+    pk.bob_phase = rng.next_float01() * 6.28318f; // desync the idle wobble
+    reg.emplace<Pickup>(e, pk);
+    return e;
 }
 
 void World::tick(const PlayerCmd& cmd, float dt) {
@@ -142,6 +137,7 @@ void World::tick(const PlayerCmd& cmd, float dt) {
         move_and_collide(*this, dt);
         enemy_separation(*this, dt);
         projectiles_update(*this, dt);
+        items_update(*this, dt);
 
         if (tick_count % 15 == 0) { // 4 Hz movement sample for the boss brain
             const auto& tr = reg.get<Transform>(player);
@@ -172,12 +168,51 @@ void World::apply_content(ContentDB new_content) {
             enemy.def = static_cast<uint16_t>(idx);
         }
     }
+    for (auto [e, pickup] : reg.view<Pickup>().each()) {
+        const std::string& old_id = content.items[pickup.item].id;
+        const int idx = new_content.find_item(old_id);
+        if (idx < 0) {
+            doomed.push_back(e);
+        } else {
+            pickup.item = static_cast<uint16_t>(idx);
+        }
+    }
     for (const entt::entity e : doomed) {
         reg.destroy(e);
     }
+
+    // Held items: remap indices by id and keep StatBlock modifier sources in
+    // step (they store the item index); modifiers from removed defs go away.
+    // Each modifier is rewritten exactly once from its OLD value in a single
+    // pass, so swapped indices (0<->1) can't cascade.
+    if (auto* inv = reg.try_get<Inventory>(player)) {
+        constexpr uint16_t kGone = 0xfffe;
+        auto& stats = reg.get<StatBlock>(player);
+        std::vector<uint16_t> kept;
+        std::vector<std::pair<uint16_t, uint16_t>> remap; // old item idx -> new (kGone = removed)
+        for (const uint16_t old_idx : inv->items) {
+            const int idx = new_content.find_item(content.items[old_idx].id);
+            remap.emplace_back(old_idx, idx < 0 ? kGone : static_cast<uint16_t>(idx));
+            if (idx >= 0) {
+                kept.push_back(static_cast<uint16_t>(idx));
+            }
+        }
+        for (Modifier& m : stats.mods) {
+            for (const auto& [from, to] : remap) {
+                if (m.source == from) {
+                    m.source = to;
+                    break;
+                }
+            }
+        }
+        std::erase_if(stats.mods, [](const Modifier& m) { return m.source == kGone; });
+        inv->items = std::move(kept);
+        refresh_player_stats();
+    }
+
     content = std::move(new_content);
-    log_info("content reloaded: {} enemy defs, {} live enemies removed", content.enemies.size(),
-             doomed.size());
+    log_info("content reloaded: {} enemy defs, {} item defs, {} live entities removed",
+             content.enemies.size(), content.items.size(), doomed.size());
 }
 
 void World::refresh_player_stats() {

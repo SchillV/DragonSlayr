@@ -65,7 +65,7 @@ cmake --preset headless && cmake --build --preset headless && ctest --preset hea
 
 Done: enemy variety (behaviors + weighted spawn tables), combat-feel pack, menu framework,
 generic content loader (`JsonReader` + `load_category`), stat/modifier layer
-(`src/sim/stats.hpp`, player `StatBlock`). Next: **items + synergies** (ItemDef modifiers +
-effect hooks, Inventory, pickups), then **levels & rooms** (room types + functional stairs via
-`exit_pos` + per-floor scaling). **Player classes** after items (cheap once both exist). See
-`docs/CONTENT.md` roadmap.
+(`src/sim/stats.hpp`, player `StatBlock`), items + synergies (`items.json` modifiers/hooks,
+pickups, `give` console cmd). Next: **levels & rooms** (room types + functional stairs via
+`exit_pos` + per-floor scaling), then **player classes** (cheap now: grant class-source
+modifiers at run start). See `docs/CONTENT.md` roadmap.

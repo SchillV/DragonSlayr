@@ -3,6 +3,7 @@
 #include "core/cvar.hpp"
 #include "sim/collision.hpp"
 #include "sim/components.hpp"
+#include "sim/items.hpp"
 #include "sim/stats.hpp"
 #include "sim/world.hpp"
 
@@ -104,6 +105,7 @@ void player_combat(World& world, const PlayerCmd& cmd, float dt) {
                 continue; // wall between us
             }
             damage_enemy(world, e, damage, world.primary_weapon);
+            items_dispatch(world, ItemHookDef::Trigger::OnHit, {etr.pos});
             any_hit = true;
             hit_def = enemy.def;
         }
@@ -164,6 +166,7 @@ void projectiles_update(World& world, float dt) {
                 if (seg_point_dist2(tr.pos, next, etr.pos) <= reach * reach) {
                     damage_enemy(world, en, proj.damage,
                                  proj.weapon == 0xffff ? -1 : static_cast<int>(proj.weapon));
+                    items_dispatch(world, ItemHookDef::Trigger::OnHit, {etr.pos});
 
                     TelemetryEvent ev;
                     ev.tick = static_cast<uint32_t>(world.tick_count);
@@ -236,6 +239,7 @@ void damage_enemy(World& world, entt::entity enemy_e, float amount, int weapon_i
     world.telem.record(ev);
 
     world.reg.emplace_or_replace<Doomed>(enemy_e);
+    items_dispatch(world, ItemHookDef::Trigger::OnKill, {etr.pos});
 }
 
 void damage_player(World& world, float amount, uint16_t src_def, glm::vec2 src_pos) {
@@ -249,6 +253,7 @@ void damage_player(World& world, float amount, uint16_t src_def, glm::vec2 src_p
     amount *= 1.0f - world.reg.get<StatBlock>(world.player).cached.defense_pct;
     hp.hp -= amount;
     pl.hurt_flash = 1.0f;
+    items_dispatch(world, ItemHookDef::Trigger::OnDamaged, {tr.pos});
 
     const glm::vec2 from = src_pos - tr.pos;
     TelemetryEvent ev;

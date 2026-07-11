@@ -38,6 +38,7 @@ add_library(ds_sim STATIC
   src/sim/combat.cpp
   src/sim/telemetry.cpp
   src/sim/stats.cpp
+  src/sim/items.cpp
 )
 target_include_directories(ds_sim PUBLIC src)
 target_link_libraries(ds_sim
@@ -97,6 +98,7 @@ add_executable(ds_tests
   tests/test_fx.cpp
   tests/test_menu.cpp
   tests/test_stats.cpp
+  tests/test_items.cpp
   src/render/texture_load.cpp
   src/render/dungeon_mesh.cpp
   src/render/font.cpp

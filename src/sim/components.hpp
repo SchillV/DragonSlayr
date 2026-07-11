@@ -62,6 +62,28 @@ struct HurtFlash {
     float t = 0.0f; // 1 -> 0
 };
 
+// A floor item waiting to be walked over.
+struct Pickup {
+    uint16_t item = 0;      // index into ContentDB::items
+    float bob_phase = 0.0f; // render-only idle wobble offset
+};
+
+// The player's held items (ContentDB::items indices, in pickup order).
+struct Inventory {
+    std::vector<uint16_t> items;
+};
+
+// Live temp_stat effects. Each entry owns a unique source token in the
+// reserved kTempSourceBase+ range so expiry removes exactly its modifier.
+struct TempMods {
+    struct Entry {
+        uint16_t source = 0;
+        float ttl = 0.0f;
+    };
+    std::vector<Entry> entries;
+    uint16_t next_token = 0; // wraps within the reserved range
+};
+
 enum class AiState : uint8_t { Idle, Chase, Windup, Recover, Lunge };
 
 struct Enemy {

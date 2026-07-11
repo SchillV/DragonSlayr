@@ -1,0 +1,58 @@
+{
+  "ring_of_fury": {
+    "name": "Ring of Fury",
+    "sprite": "ring_of_fury",
+    "spawn_weight": 1.0,
+    "min_floor": 1,
+    "modifiers": [
+      { "stat": "damage_mult", "op": "mult", "value": 1.15 }
+    ]
+  },
+  "iron_ward": {
+    "name": "Iron Ward",
+    "sprite": "iron_ward",
+    "spawn_weight": 1.0,
+    "min_floor": 1,
+    "modifiers": [
+      { "stat": "defense_pct", "op": "add", "value": 0.1 },
+      { "stat": "move_speed_mult", "op": "mult", "value": 0.95 }
+    ]
+  },
+  "wyrm_heart": {
+    "name": "Wyrm Heart",
+    "sprite": "wyrm_heart",
+    "spawn_weight": 0.5,
+    "min_floor": 1,
+    "modifiers": [
+      { "stat": "max_hp", "op": "add", "value": 25 }
+    ],
+    "hooks": [
+      { "on": "on_kill", "effect": "heal", "amount": 2 }
+    ]
+  },
+  "bloodlust_charm": {
+    "name": "Bloodlust Charm",
+    "sprite": "bloodlust_charm",
+    "spawn_weight": 0.6,
+    "min_floor": 1,
+    "hooks": [
+      {
+        "on": "on_kill",
+        "effect": "temp_stat",
+        "stat": "move_speed_mult",
+        "op": "mult",
+        "value": 1.35,
+        "duration_s": 3.0
+      }
+    ]
+  },
+  "ember_sigil": {
+    "name": "Ember Sigil",
+    "sprite": "ember_sigil",
+    "spawn_weight": 0.5,
+    "min_floor": 1,
+    "hooks": [
+      { "on": "on_hit", "effect": "aoe_damage", "amount": 3, "radius": 1.8 }
+    ]
+  }
+}

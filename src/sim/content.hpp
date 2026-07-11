@@ -1,5 +1,7 @@
 #pragma once
 
+#include "sim/stats.hpp"
+
 #include <glm/glm.hpp>
 
 #include <filesystem>
@@ -62,6 +64,40 @@ struct WeaponDef {
     std::string sound;
 };
 
+// A passive stat bonus an item grants while held.
+struct ItemModifierDef {
+    StatId stat = StatId::MaxHp;
+    Modifier::Op op = Modifier::Op::Add;
+    float value = 0.0f;
+};
+
+// A reactive effect: when `on` fires, run `effect` with these parameters.
+// Both palettes are curated C++ (hybrid philosophy); items combine them.
+struct ItemHookDef {
+    enum class Trigger : uint8_t { OnHit, OnKill, OnDamaged, OnPickup };
+    enum class Effect : uint8_t { Heal, TempStat, AoeDamage };
+
+    Trigger on = Trigger::OnKill;
+    Effect effect = Effect::Heal;
+    float amount = 0.0f;     // heal hp / aoe damage
+    float radius = 2.0f;     // aoe_damage
+    float duration_s = 3.0f; // temp_stat
+    StatId stat = StatId::MaxHp;
+    Modifier::Op op = Modifier::Op::Add;
+    float value = 0.0f; // temp_stat modifier value
+};
+
+struct ItemDef {
+    std::string id;   // JSON object key
+    std::string name; // display name (defaults to id)
+    std::string sprite;
+    glm::vec2 sprite_size{0.5f, 0.5f};
+    float spawn_weight = 1.0f; // relative frequency in item spots
+    int min_floor = 1;
+    std::vector<ItemModifierDef> modifiers;
+    std::vector<ItemHookDef> hooks;
+};
+
 // Linear id lookup shared by every content category (rosters are small; a
 // hash map would be overkill and would hurt hot-reload index stability).
 template <typename Def>
@@ -79,9 +115,11 @@ int find_by_id(const std::vector<Def>& defs, std::string_view id) {
 struct ContentDB {
     std::vector<EnemyDef> enemies;
     std::vector<WeaponDef> weapons;
+    std::vector<ItemDef> items;
 
     int find_enemy(std::string_view id) const;
     int find_weapon(std::string_view id) const;
+    int find_item(std::string_view id) const;
 
     // On failure: returns false, fills `error` (with the offending JSON key
     // path) and leaves the db unchanged.
@@ -89,6 +127,8 @@ struct ContentDB {
     bool load_enemies(const std::filesystem::path& path, std::string* error = nullptr);
     bool load_weapons_from_string(std::string_view json_text, std::string* error = nullptr);
     bool load_weapons(const std::filesystem::path& path, std::string* error = nullptr);
+    bool load_items_from_string(std::string_view json_text, std::string* error = nullptr);
+    bool load_items(const std::filesystem::path& path, std::string* error = nullptr);
 };
 
 } // namespace ds

@@ -142,6 +142,30 @@ value + one name-table entry + one consumer. Items (and later classes) grant/rem
 `source` and call `World::refresh_player_stats()`, which syncs Health (gaining max HP heals by
 the gained amount; losing it clamps).
 
+## Adding an item — `assets/data/items.json`
+
+Items are the first consumers of both frameworks above. An item is passive `modifiers` (applied
+while held) plus reactive `hooks`: **triggers** (`on_hit`, `on_kill`, `on_damaged`, `on_pickup`)
+paired with curated **effects** (`heal`, `temp_stat`, `aoe_damage`) — synergies come from
+combining them, e.g. an on-kill speed burst plus an on-hit AoE turns crowds into chain
+
+```json
+"bloodlust_charm": {
+  "name": "Bloodlust Charm",
+  "sprite": "bloodlust_charm",          // billboard texture in assets/textures/
+  "spawn_weight": 0.6, "min_floor": 1,  // same weighted table mechanism as enemies
+  "modifiers": [ { "stat": "damage_mult", "op": "mult", "value": 1.1 } ],
+  "hooks": [ { "on": "on_kill", "effect": "temp_stat",
+               "stat": "move_speed_mult", "op": "mult", "value": 1.35, "duration_s": 3 } ]
+}
+```
+
+The generator sprinkles item spots (`DungeonResult::item_spawns`, roughly every other room);
+worlds draw a def per spot via the shared weighted table. Pickups are walk-over; `give <id>` in
+the console grants directly. Hooks dispatch from combat (`items_dispatch`), re-entrancy capped at
+one level of chaining so an AoE-kill cascade can't hang the sim. New effects/triggers are enum
+values + one `apply_hook` case in `src/sim/items.cpp`; everything else is data.
+
 ---
 
 ## Roadmap
@@ -149,17 +173,16 @@ the gained amount; losing it clamps).
 - **Enemy variety** — _done_: `behavior` (chaser / ranged / charger / stationary) dispatched in
   `enemy_ai.cpp`, plus weighted, per-floor-aware spawn tables (`spawn_weight` / `min_floor`). See
   the enemy recipe above.
+- **Stats & items** — _done_: the `StatBlock` modifier layer and `ItemDef`
+  modifiers/hooks/pickups. See the stats and item sections above.
 
 _Planned — designed seams, not finished features; in intended order of work:_
 
-- **Items + synergies** — an `ItemDef` (stat modifiers + tagged effect hooks like `on_hit` /
-  `on_kill` / passive), an `Inventory` component, pickup entities placed by the generator
-  (`DungeonResult` already carries spawn-point lists), and a stat/modifier layer that recomputes a
-  `Stats` cache from base values + held items. The core of build diversity.
 - **Levels & rooms** — tagged `RoomType` defs (arena / treasure / ambush) chosen during
   generation, the already-present `exit_pos` wired up as functional **stairs**, and per-floor
-  difficulty scaling driving the spawn tables above.
+  difficulty scaling driving the spawn tables above (`min_floor` gating already works).
 - **Player classes** — a `ClassDef` selected per run: starting loadout, base stats, and perks.
-  Cheap once the stat/modifier layer from "items" exists.
+  Cheap now that the stat/modifier layer exists (grant modifiers with a class source at run
+  start).
 
 When these land, this document's _(planned)_ markers come off and each gets a concrete recipe.

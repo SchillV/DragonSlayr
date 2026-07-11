@@ -90,6 +90,37 @@ public:
         return JsonReader(v, path_ + "." + key, ctx_);
     }
 
+    // Visits each element of an optional array of objects with its own
+    // indexed reader ("path.key[2]" in error messages).
+    template <typename Fn>
+    void arr(const char* key, Fn&& fn) {
+        const json* v = find(key, /*required=*/false);
+        if (!v) {
+            return;
+        }
+        if (!v->is_array()) {
+            return fail(key, "expected an array");
+        }
+        for (size_t i = 0; i < v->size(); ++i) {
+            std::string epath = std::format("{}.{}[{}]", path_, key, i);
+            if (!(*v)[i].is_object()) {
+                if (ctx_.ok && ctx_.error) {
+                    *ctx_.error = epath + ": expected an object";
+                }
+                ctx_.ok = false;
+                return;
+            }
+            JsonReader elem(&(*v)[i], std::move(epath), ctx_);
+            fn(elem);
+            if (!ctx_.ok) {
+                return;
+            }
+        }
+    }
+
+    // For custom validation in parse functions (e.g. stat name lookups).
+    void error_at(const char* key, std::string_view what) { fail(key, what); }
+
 private:
     const json* find(const char* key, bool required) {
         if (!ctx_.ok || !obj_) {
@@ -220,6 +251,53 @@ void parse_enemy(JsonReader& r, EnemyDef& out) {
     attack.opt_f("projectile_radius", out.attack.projectile_radius);
 }
 
+void parse_stat_ref(JsonReader& r, StatId& stat, Modifier::Op& op) {
+    std::string name;
+    r.req_s("stat", name);
+    if (!name.empty() && !stat_from_name(name, stat)) {
+        r.error_at("stat", std::format("unknown stat '{}'", name));
+    }
+    r.enum_of("op", op, {{"add", Modifier::Op::Add}, {"mult", Modifier::Op::Mult}});
+}
+
+void parse_item(JsonReader& r, ItemDef& out) {
+    r.opt_s("name", out.name);
+    r.req_s("sprite", out.sprite);
+    r.opt_vec2("sprite_size", out.sprite_size);
+    r.opt_f("spawn_weight", out.spawn_weight);
+    r.opt_i("min_floor", out.min_floor);
+
+    r.arr("modifiers", [&out](JsonReader& m) {
+        ItemModifierDef def;
+        parse_stat_ref(m, def.stat, def.op);
+        m.req_f("value", def.value);
+        out.modifiers.push_back(def);
+    });
+
+    r.arr("hooks", [&out](JsonReader& h) {
+        ItemHookDef def;
+        h.enum_of("on", def.on,
+                  {{"on_hit", ItemHookDef::Trigger::OnHit},
+                   {"on_kill", ItemHookDef::Trigger::OnKill},
+                   {"on_damaged", ItemHookDef::Trigger::OnDamaged},
+                   {"on_pickup", ItemHookDef::Trigger::OnPickup}},
+                  /*required=*/true);
+        h.enum_of("effect", def.effect,
+                  {{"heal", ItemHookDef::Effect::Heal},
+                   {"temp_stat", ItemHookDef::Effect::TempStat},
+                   {"aoe_damage", ItemHookDef::Effect::AoeDamage}},
+                  /*required=*/true);
+        h.opt_f("amount", def.amount);
+        h.opt_f("radius", def.radius);
+        h.opt_f("duration_s", def.duration_s);
+        if (def.effect == ItemHookDef::Effect::TempStat) {
+            parse_stat_ref(h, def.stat, def.op);
+            h.req_f("value", def.value);
+        }
+        out.hooks.push_back(def);
+    });
+}
+
 void parse_weapon(JsonReader& r, WeaponDef& out) {
     r.opt_s("name", out.name);
     r.enum_of("type", out.type,
@@ -252,6 +330,10 @@ int ContentDB::find_weapon(std::string_view id) const {
     return find_by_id(weapons, id);
 }
 
+int ContentDB::find_item(std::string_view id) const {
+    return find_by_id(items, id);
+}
+
 bool ContentDB::load_enemies_from_string(std::string_view json_text, std::string* error) {
     return load_category(json_text, "enemies", enemies, parse_enemy, error);
 }
@@ -268,6 +350,15 @@ bool ContentDB::load_weapons_from_string(std::string_view json_text, std::string
 bool ContentDB::load_weapons(const std::filesystem::path& path, std::string* error) {
     std::string text;
     return load_category_file(path, text, error) && load_weapons_from_string(text, error);
+}
+
+bool ContentDB::load_items_from_string(std::string_view json_text, std::string* error) {
+    return load_category(json_text, "items", items, parse_item, error);
+}
+
+bool ContentDB::load_items(const std::filesystem::path& path, std::string* error) {
+    std::string text;
+    return load_category_file(path, text, error) && load_items_from_string(text, error);
 }
 
 } // namespace ds

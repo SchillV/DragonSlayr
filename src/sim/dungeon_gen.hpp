@@ -34,6 +34,7 @@ struct DungeonResult {
     glm::ivec2 player_spawn{1, 1};
     glm::ivec2 exit_pos{1, 1};                // stairs live here in a later milestone
     std::vector<glm::ivec2> enemy_spawns;
+    std::vector<glm::ivec2> item_spawns;
 };
 
 // Pure function of params: rooms via rejection placement, Prim MST over centers,

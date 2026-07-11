@@ -186,6 +186,24 @@ DungeonResult generate_dungeon(const GenParams& params) {
             out.enemy_spawns.push_back(p);
         }
     }
+
+    // 7) Item spots: sparser than enemies — roughly every other room, never
+    // the spawn room. Drawn after everything else so earlier RNG sequences
+    // (and the golden-hash test) stay byte-identical.
+    for (int i = 1; i < n; ++i) {
+        if (!rng.chance(0.45f)) {
+            continue;
+        }
+        const Room& r = out.rooms[static_cast<size_t>(i)];
+        const glm::ivec2 p{rng.range_int(r.x, r.x + r.w - 1), rng.range_int(r.y, r.y + r.h - 1)};
+        if (out.map.tiles.at(p.x, p.y) != Tile::Floor) {
+            continue;
+        }
+        if (p == out.exit_pos || p == out.player_spawn) {
+            continue;
+        }
+        out.item_spawns.push_back(p);
+    }
     return out;
 }
 

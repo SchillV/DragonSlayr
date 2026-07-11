@@ -12,6 +12,7 @@
 #include "render/font.hpp"
 #include "render/gpu_renderer.hpp"
 #include "render/texture_load.hpp"
+#include "sim/items.hpp"
 #include "sim/bot.hpp"
 #include "sim/components.hpp"
 #include "sim/dungeon_gen.hpp"
@@ -160,6 +161,9 @@ SpriteAtlas rebuild_sprite_atlas(IRenderer& renderer, const ContentDB& content,
     for (const WeaponDef& def : content.weapons) {
         add(def.sprite);
     }
+    for (const ItemDef& def : content.items) {
+        add(def.sprite);
+    }
     renderer.set_sprite_textures(layers);
     return atlas;
 }
@@ -176,6 +180,12 @@ void load_content(World& world, const std::filesystem::path& data_dir) {
         log_warn("weapon content unavailable: {}", error);
     } else {
         log_info("loaded {} weapon defs", world.content.weapons.size());
+    }
+    error.clear();
+    if (!world.content.load_items(data_dir / "items.json", &error)) {
+        log_warn("item content unavailable: {}", error);
+    } else {
+        log_info("loaded {} item defs", world.content.items.size());
     }
 }
 
@@ -425,8 +435,10 @@ int App::run_windowed(Platform& platform) {
     audio.init(asset_root / "sounds");
 
     const std::filesystem::path enemies_path = asset_root / "data" / "enemies.json";
+    const std::filesystem::path items_path = asset_root / "data" / "items.json";
     std::error_code mtime_ec;
     auto enemies_mtime = std::filesystem::last_write_time(enemies_path, mtime_ec);
+    auto items_mtime = std::filesystem::last_write_time(items_path, mtime_ec);
     double reload_poll_timer = 0.0;
 
     uint64_t seed = cfg_.seed;
@@ -497,6 +509,20 @@ int App::run_windowed(Platform& platform) {
         cvar_set(*cv, cv->as_bool() ? 0.0f : 1.0f);
         fb = std::format("noclip {}", cv->as_bool() ? "ON [CHEAT]" : "off");
     });
+    con_register("give", "grant an item by id: give <item_id>",
+                 [&](std::span<const std::string_view> args, std::string& fb) {
+                     if (args.empty()) {
+                         fb = "usage: give <item_id>";
+                         return;
+                     }
+                     const int idx = world.content.find_item(args[0]);
+                     if (idx < 0) {
+                         fb = std::format("unknown item '{}'", args[0]);
+                         return;
+                     }
+                     grant_item(world, idx);
+                     fb = std::format("granted {}", world.content.items[static_cast<size_t>(idx)].name);
+                 });
 
     // Menu / phase state. The game boots onto the Title screen over a live
     // dungeon backdrop; the sim only ticks while Playing.
@@ -565,23 +591,35 @@ int App::run_windowed(Platform& platform) {
         prev = now;
         frame_dt = std::min(frame_dt, 0.25); // spiral-of-death clamp
 
-        // Hot reload: poll data file mtimes a couple of times a second.
+        // Hot reload: poll data file mtimes a couple of times a second. Each
+        // reload starts from a copy of the live db so the categories the
+        // changed file doesn't cover survive intact.
         reload_poll_timer += frame_dt;
         if (fs_hot_reload.as_bool() && reload_poll_timer >= 0.5) {
             reload_poll_timer = 0.0;
-            std::error_code ec;
-            const auto mtime = std::filesystem::last_write_time(enemies_path, ec);
-            if (!ec && mtime != enemies_mtime) {
-                enemies_mtime = mtime;
-                ContentDB fresh;
+            auto reload_file = [&](const std::filesystem::path& path,
+                                   bool (ContentDB::*load)(const std::filesystem::path&,
+                                                           std::string*)) {
+                ContentDB fresh = world.content;
                 std::string error;
-                if (fresh.load_enemies(enemies_path, &error)) {
+                if ((fresh.*load)(path, &error)) {
                     world.apply_content(std::move(fresh));
                     sprite_atlas =
                         rebuild_sprite_atlas(renderer, world.content, asset_root / "textures");
                 } else {
                     log_error("hot reload rejected: {}", error);
                 }
+            };
+            std::error_code ec;
+            auto mtime = std::filesystem::last_write_time(enemies_path, ec);
+            if (!ec && mtime != enemies_mtime) {
+                enemies_mtime = mtime;
+                reload_file(enemies_path, &ContentDB::load_enemies);
+            }
+            mtime = std::filesystem::last_write_time(items_path, ec);
+            if (!ec && mtime != items_mtime) {
+                items_mtime = mtime;
+                reload_file(items_path, &ContentDB::load_items);
             }
         }
 
@@ -774,6 +812,21 @@ int App::run_windowed(Platform& platform) {
                                     static_cast<float>(layer),
                                     flash ? flash->t : 0.0f});
         }
+        // Floor pickups: gently bobbing billboards.
+        for (auto [e, pickup, ptr] : world.reg.view<const Pickup, const Transform>().each()) {
+            const ItemDef& def = world.content.items[pickup.item];
+            const int layer = sprite_atlas.layer_of(def.sprite);
+            if (layer < 0) {
+                continue;
+            }
+            const float bob =
+                0.1f + 0.05f * std::sin(static_cast<float>(run_time) * 2.4f + pickup.bob_phase);
+            view.sprites.push_back({{ptr.pos.x, bob, ptr.pos.y},
+                                    def.sprite_size,
+                                    static_cast<float>(layer),
+                                    0.0f});
+        }
+
         // All projectiles render as the glowy "bolt"; enemy shots are tinted
         // red via the sprite flash channel to read as a threat.
         const int bolt_layer = sprite_atlas.layer_of("bolt");

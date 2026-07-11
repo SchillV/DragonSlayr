@@ -31,9 +31,18 @@ struct World {
     int primary_weapon = -1;   // "sword" — gear replaces this later
     int secondary_weapon = -1; // "bolt"
     int hook_depth = 0;        // item-hook re-entrancy guard (see items.cpp)
+    // Set by tick() when the player steps onto the stairs (dungeon.exit_pos);
+    // whoever owns the run (app / headless loop) generates the next floor and
+    // calls advance_floor.
+    bool floor_exit_requested = false;
 
     // Call after content is loaded; spawns the player and enemies.
     void init_from_dungeon(DungeonResult d, uint64_t seed);
+
+    // Descend the stairs: score, telemetry, held items (and their modifiers)
+    // and current health carry over; temp buffs and live entities do not.
+    void advance_floor(DungeonResult d);
+
     void tick(const PlayerCmd& cmd, float dt);
 
     // Creates one enemy entity from a ContentDB::enemies index at a world
@@ -58,6 +67,11 @@ struct World {
     // Telemetry hooks — no-ops until the recorder lands (M5), but the sim
     // calls them from day one so nothing needs rewiring later.
     void on_player_dash(glm::vec2 dir);
+
+private:
+    // Shared by init_from_dungeon (fresh run) and advance_floor (descent):
+    // clears the registry and spawns player/enemies/items for `dungeon`.
+    void setup_floor(DungeonResult d);
 };
 
 // Weighted, deterministic spawn pick over any def roster with spawn_weight +

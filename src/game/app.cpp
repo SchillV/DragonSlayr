@@ -357,6 +357,13 @@ int App::run_headless() {
     while (static_cast<int64_t>(world.tick_count) < target) {
         const PlayerCmd cmd = bot.active() ? bot.make_cmd(world) : PlayerCmd{};
         world.tick(cmd, static_cast<float>(kTickDt));
+        if (world.floor_exit_requested) {
+            world.floor_exit_requested = false;
+            GenParams fp;
+            fp.seed = cfg_.seed + 0x9e3779b9ULL * static_cast<uint64_t>(world.current_floor);
+            fp.floor = world.current_floor + 1;
+            world.advance_floor(generate_dungeon(fp));
+        }
         if (world.tick_count % 60 == 0 && !sim_state_valid(world)) {
             return 1;
         }
@@ -674,9 +681,20 @@ int App::run_windowed(Platform& platform) {
                 world.tick(cmd, static_cast<float>(kTickDt));
                 acc -= kTickDt;
             }
+            if (world.floor_exit_requested) {
+                world.floor_exit_requested = false;
+                GenParams fp;
+                fp.seed = seed + 0x9e3779b9ULL * static_cast<uint64_t>(world.current_floor);
+                fp.floor = world.current_floor + 1;
+                world.advance_floor(generate_dungeon(fp));
+                renderer.set_dungeon_mesh(build_dungeon_mesh(world.map()));
+                fx_indicators.clear(); // old-world directions mean nothing here
+                audio.play("dash");    // stair whoosh, until a dedicated cue exists
+            }
             if (world.player_dead) {
                 open_menu(MenuScreen::Death, GamePhase::Dead); // death → death screen
-                menu.set_status_line(std::format("FINAL SCORE  {}", world.score));
+                menu.set_status_line(
+                    std::format("FINAL SCORE  {}  ·  FLOOR {}", world.score, world.current_floor));
             }
         } else {
             acc = 0.0;
@@ -857,6 +875,7 @@ int App::run_windowed(Platform& platform) {
                 dash_cd && dash_cd->value > 0.0f ? pl.dash_cooldown / dash_cd->value : 0.0f;
             hud.dead = world.player_dead;
             hud.score = world.score;
+            hud.floor = world.current_floor;
             hud.cam_yaw = cam_yaw;
             hud.time = run_time;
             hud.chip_hp = fx_chip_hp;

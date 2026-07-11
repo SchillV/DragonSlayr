@@ -175,12 +175,15 @@ values + one `apply_hook` case in `src/sim/items.cpp`; everything else is data.
   the enemy recipe above.
 - **Stats & items** — _done_: the `StatBlock` modifier layer and `ItemDef`
   modifiers/hooks/pickups. See the stats and item sections above.
+- **Levels & rooms** — _done_: `exit_pos` is functional **stairs** (step on it and
+  `World::advance_floor` carries score/health/items to a fresh floor; temp buffs expire),
+  `GenParams::floor` scales enemy budgets ~+20%/floor, and rooms get geometry-derived types —
+  the largest is an **arena** (double enemies), the smallest a safe **treasure vault** with a
+  guaranteed item. Enemy/item defs gate depth via `min_floor`; today's data all unlocks at 1 —
+  raising it on brutes/rares is the intended difficulty dial.
 
 _Planned — designed seams, not finished features; in intended order of work:_
 
-- **Levels & rooms** — tagged `RoomType` defs (arena / treasure / ambush) chosen during
-  generation, the already-present `exit_pos` wired up as functional **stairs**, and per-floor
-  difficulty scaling driving the spawn tables above (`min_floor` gating already works).
 - **Player classes** — a `ClassDef` selected per run: starting loadout, base stats, and perks.
   Cheap now that the stat/modifier layer exists (grant modifiers with a class source at run
   start).

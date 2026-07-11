@@ -173,7 +173,7 @@ void build_hud(FrameView& view, const HudState& state, glm::vec2 vp, const FontA
         }
     }
 
-    // Score, top-right.
+    // Score + floor, top-right.
     if (font && font->valid()) {
         const std::string score_text = std::format("SCORE {}", state.score);
         const float ts = scale;
@@ -181,6 +181,11 @@ void build_hud(FrameView& view, const HudState& state, glm::vec2 vp, const FontA
         emit_text(view.overlay_text, *font, score_text,
                   {vp.x - tsize.x - 16.0f * scale, 12.0f * scale}, ts,
                   {0.91f, 0.85f, 0.69f, 0.9f});
+        const std::string floor_text = std::format("FLOOR {}", state.floor);
+        const glm::vec2 fsize = measure_text(*font, floor_text, ts);
+        emit_text(view.overlay_text, *font, floor_text,
+                  {vp.x - fsize.x - 16.0f * scale, 12.0f * scale + font->line_advance * ts + 2.0f * scale},
+                  ts, {0.79f, 0.64f, 0.29f, 0.85f});
     }
 
     // Dash cooldown pip under the health bar.

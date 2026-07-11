@@ -43,22 +43,61 @@ void move_and_collide(World& world, float dt) {
 } // namespace
 
 void World::init_from_dungeon(DungeonResult d, uint64_t s) {
-    reg.clear();
-    dungeon = std::move(d);
     seed = s;
-    rng = Rng(s ^ 0x9e3779b97f4a7c15ULL); // distinct stream from generation
     tick_count = 0;
-    player_dead = false;
     score = 0;
+    current_floor = 1;
     cvar_reset_cheat_touched();
-
-    primary_weapon = content.find_weapon("sword");
-    secondary_weapon = content.find_weapon("bolt");
 
     telem.begin_run(s);
     TelemetryEvent start;
     start.type = EvType::RunStart;
     telem.record(start);
+
+    setup_floor(std::move(d));
+}
+
+void World::advance_floor(DungeonResult d) {
+    Health carried_hp = reg.get<Health>(player);
+    StatBlock carried_stats = std::move(reg.get<StatBlock>(player));
+    Inventory carried_inv;
+    if (auto* inv = reg.try_get<Inventory>(player)) {
+        carried_inv = std::move(*inv);
+    }
+    // Temp buffs die at the stairs (their TempMods bookkeeping is per-floor).
+    std::erase_if(carried_stats.mods,
+                  [](const Modifier& m) { return m.source >= kTempSourceBase; });
+
+    ++current_floor;
+    setup_floor(std::move(d));
+
+    reg.emplace_or_replace<Inventory>(player, std::move(carried_inv));
+    auto& stats = reg.get<StatBlock>(player);
+    stats = std::move(carried_stats);
+    stats.recompute();
+    auto& hp = reg.get<Health>(player);
+    hp.max_hp = stats.cached.max_hp;
+    hp.hp = std::clamp(carried_hp.hp, 1.0f, hp.max_hp); // arrive alive
+
+    TelemetryEvent ev;
+    ev.tick = static_cast<uint32_t>(tick_count);
+    ev.type = EvType::FloorAdvance;
+    ev.a = static_cast<float>(current_floor);
+    telem.record(ev);
+    log_info("descended to floor {} (score {})", current_floor, score);
+}
+
+void World::setup_floor(DungeonResult d) {
+    reg.clear();
+    dungeon = std::move(d);
+    // Distinct stream from generation, folded with the floor so each depth
+    // draws different spawns (floor 1 matches the pre-floors stream).
+    rng = Rng(seed ^ (0x9e3779b97f4a7c15ULL * static_cast<uint64_t>(current_floor)));
+    player_dead = false;
+    floor_exit_requested = false;
+
+    primary_weapon = content.find_weapon("sword");
+    secondary_weapon = content.find_weapon("bolt");
 
     player = reg.create();
     const glm::vec2 spawn{static_cast<float>(dungeon.player_spawn.x) + 0.5f,
@@ -138,6 +177,12 @@ void World::tick(const PlayerCmd& cmd, float dt) {
         enemy_separation(*this, dt);
         projectiles_update(*this, dt);
         items_update(*this, dt);
+
+        // Standing on the stairs asks the run owner for the next floor.
+        const glm::vec2 ppos = reg.get<Transform>(player).pos;
+        if (glm::ivec2{static_cast<int>(ppos.x), static_cast<int>(ppos.y)} == dungeon.exit_pos) {
+            floor_exit_requested = true;
+        }
 
         if (tick_count % 15 == 0) { // 4 Hz movement sample for the boss brain
             const auto& tr = reg.get<Transform>(player);

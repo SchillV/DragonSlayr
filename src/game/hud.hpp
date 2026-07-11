@@ -30,6 +30,7 @@ struct HudState {
     float dash_cooldown01 = 0.0f; // 0 = ready, 1 = just used
     bool dead = false;
     int score = 0;
+    int floor = 1;
     // combat feedback
     float cam_yaw = 0.0f;
     double time = 0.0;            // seconds, drives low-health pulsing

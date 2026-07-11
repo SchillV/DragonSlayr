@@ -26,6 +26,7 @@ enum class EvType : uint8_t {
     PlayerMoveSample, // a, b = velocity (4 Hz downsample)
     EnemyKilled,      // def = enemy, a = weapon def index, b = seconds alive
     ItemPickup,       // def = item
+    FloorAdvance,     // a = the floor arrived at
 };
 
 struct TelemetryEvent {

@@ -12,12 +12,6 @@ namespace ds {
 
 namespace {
 
-// Temp-modifier source tokens live far above any plausible item index so the
-// two id spaces (and hot-reload remapping, which only touches item indices)
-// can never collide.
-constexpr uint16_t kTempSourceBase = 0xf000;
-constexpr uint16_t kTempSourceSpan = 0x0e00; // wraps before 0xfffe/0xffff sentinels
-
 constexpr float kPickupRadius = 0.65f; // walk-over distance, tiles
 
 void apply_hook(World& world, const ItemHookDef& hook, const HookCtx& ctx) {

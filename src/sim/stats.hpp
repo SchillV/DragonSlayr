@@ -41,6 +41,12 @@ struct Modifier {
     uint16_t source = 0xffff;
 };
 
+// Timed buffs use source tokens in this reserved range, far above any
+// plausible item index, so the two id spaces can never collide and code can
+// strip "everything temporary" by range (e.g. when descending stairs).
+constexpr uint16_t kTempSourceBase = 0xf000;
+constexpr uint16_t kTempSourceSpan = 0x0e00; // wraps before the 0xfffe/0xffff sentinels
+
 // base + modifiers -> cached. Per stat, all Adds apply before all Mults, so
 // the result is order-independent (insertion order never matters).
 struct StatBlock {

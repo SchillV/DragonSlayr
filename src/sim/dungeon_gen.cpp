@@ -175,10 +175,44 @@ DungeonResult generate_dungeon(const GenParams& params) {
         out.exit_pos = far;
     }
 
-    // 6) Enemy spawn points: per-room area budget, skipping the spawn room.
+    // 6) Room roles from pure geometry — no RNG, so typing can never disturb
+    // the carving sequence the golden-hash test pins down. Biggest non-spawn
+    // room fights as an arena; the smallest becomes a safe treasure vault.
+    if (n > 2) {
+        int arena = -1;
+        int treasure = -1;
+        for (int i = 1; i < n; ++i) {
+            if (arena < 0 || out.rooms[static_cast<size_t>(i)].area() >
+                                 out.rooms[static_cast<size_t>(arena)].area()) {
+                arena = i;
+            }
+        }
+        for (int i = 1; i < n; ++i) {
+            if (i == arena) {
+                continue;
+            }
+            if (treasure < 0 || out.rooms[static_cast<size_t>(i)].area() <
+                                    out.rooms[static_cast<size_t>(treasure)].area()) {
+                treasure = i;
+            }
+        }
+        out.rooms[static_cast<size_t>(arena)].type = RoomType::Arena;
+        out.rooms[static_cast<size_t>(treasure)].type = RoomType::Treasure;
+    }
+
+    // 7) Enemy spawn points: per-room area budget, scaled up by floor depth.
+    // Arenas pack double; treasure vaults stay safe.
+    const float floor_scale = 1.0f + 0.2f * static_cast<float>(params.floor - 1);
     for (int i = 1; i < n; ++i) {
         const Room& r = out.rooms[static_cast<size_t>(i)];
-        const int budget = std::clamp(r.area() / 16, 1, 6);
+        if (r.type == RoomType::Treasure) {
+            continue;
+        }
+        int budget = std::clamp(r.area() / 16, 1, 6);
+        if (r.type == RoomType::Arena) {
+            budget *= 2;
+        }
+        budget = std::min(static_cast<int>(static_cast<float>(budget) * floor_scale), 14);
         for (int k = 0; k < budget; ++k) {
             const glm::ivec2 p{rng.range_int(r.x, r.x + r.w - 1), rng.range_int(r.y, r.y + r.h - 1)};
             if (out.map.tiles.at(p.x, p.y) != Tile::Floor) continue;
@@ -187,22 +221,22 @@ DungeonResult generate_dungeon(const GenParams& params) {
         }
     }
 
-    // 7) Item spots: sparser than enemies — roughly every other room, never
-    // the spawn room. Drawn after everything else so earlier RNG sequences
-    // (and the golden-hash test) stay byte-identical.
+    // 8) Item spots: treasure vaults always hold one; other rooms roughly
+    // every other room.
     for (int i = 1; i < n; ++i) {
-        if (!rng.chance(0.45f)) {
-            continue;
-        }
         const Room& r = out.rooms[static_cast<size_t>(i)];
-        const glm::ivec2 p{rng.range_int(r.x, r.x + r.w - 1), rng.range_int(r.y, r.y + r.h - 1)};
-        if (out.map.tiles.at(p.x, p.y) != Tile::Floor) {
+        const bool guaranteed = r.type == RoomType::Treasure;
+        if (!guaranteed && !rng.chance(0.45f)) {
             continue;
         }
-        if (p == out.exit_pos || p == out.player_spawn) {
-            continue;
+        const int attempts = guaranteed ? 8 : 1;
+        for (int k = 0; k < attempts; ++k) {
+            const glm::ivec2 p{rng.range_int(r.x, r.x + r.w - 1), rng.range_int(r.y, r.y + r.h - 1)};
+            if (out.map.tiles.at(p.x, p.y) != Tile::Floor) continue;
+            if (p == out.exit_pos || p == out.player_spawn) continue;
+            out.item_spawns.push_back(p);
+            break;
         }
-        out.item_spawns.push_back(p);
     }
     return out;
 }

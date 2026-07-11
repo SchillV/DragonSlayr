@@ -99,6 +99,7 @@ add_executable(ds_tests
   tests/test_menu.cpp
   tests/test_stats.cpp
   tests/test_items.cpp
+  tests/test_floors.cpp
   src/render/texture_load.cpp
   src/render/dungeon_mesh.cpp
   src/render/font.cpp

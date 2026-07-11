@@ -26,6 +26,7 @@ const char* type_name(EvType t) {
     case EvType::PlayerMoveSample: return "player_move_sample";
     case EvType::EnemyKilled: return "enemy_killed";
     case EvType::ItemPickup: return "item_pickup";
+    case EvType::FloorAdvance: return "floor_advance";
     }
     return "unknown";
 }
@@ -163,6 +164,9 @@ std::filesystem::path TelemetryRecorder::write_json(const std::filesystem::path&
             e["item"] = ev.def < content.items.size() ? content.items[ev.def].id
                                                       : std::format("#{}", ev.def);
             e["pos"] = {ev.x, ev.y};
+            break;
+        case EvType::FloorAdvance:
+            e["floor"] = static_cast<int>(ev.a);
             break;
         case EvType::RunStart:
         case EvType::RunEnd:

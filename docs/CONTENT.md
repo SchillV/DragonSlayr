@@ -115,21 +115,32 @@ That's the hybrid pattern: one new C++ branch, then unlimited data-defined varia
 
 ## Adding a new content category in C++ — *the ContentDB pattern*
 
-To introduce a whole new kind of content (the way `items` will be added), follow the existing
-enemy/weapon pattern in `src/sim/content.{hpp,cpp}`:
+Introducing a whole new kind of content (the way `items` will be added) is deliberately small,
+thanks to the generic loader in `src/sim/content.cpp`:
 
-1. Define a `FooDef` struct in `content.hpp` and add `std::vector<FooDef> foos;` plus
-   `int find_foo(std::string_view) const;` to `ContentDB`.
-2. Write `parse_foo(...)` in `content.cpp` using the `read_float`/`read_string`/`read_int`
-   helpers (they accumulate the JSON key path into error messages for free), and
-   `load_foos_from_string` / `load_foos` mirroring the enemy loaders.
-3. Call `content.load_foos(...)` from `load_content` in `src/game/app.cpp`, and add the file to
-   the hot-reload poll list there.
+1. Define a `FooDef` struct in `content.hpp` (it needs an `id` member; a `name` member, if
+   present, defaults to the id) and add `std::vector<FooDef> foos;` plus a one-line
+   `find_foo(id)` wrapper over the shared `find_by_id` template.
+2. Write one `parse_foo(JsonReader&, FooDef&)` function in `content.cpp` — `req_f`/`opt_f`,
+   `req_s`/`opt_s`, `opt_i`, `opt_vec2`, `enum_of` (name-table enums), and `sub("nested")` all
+   report errors with the full JSON key path automatically, and a failed load never replaces the
+   previous roster.
+3. Add the two one-line entry points (`load_foos_from_string` / `load_foos` via
+   `load_category(text, "foos", foos, parse_foo, error)`), call `content.load_foos(...)` from
+   `load_content` in `src/game/app.cpp`, and add the file to the hot-reload poll list there.
 4. Give entities that reference it a component holding the **index** (`uint16_t`), and remap it in
    `World::apply_content` so hot-reload keeps working.
 
-This is intentionally repetitive today; reducing that boilerplate (a generic loader) and a
-stat/modifier backbone for items and classes are planned foundation work.
+## Player stats & modifiers — *the backbone items and classes plug into*
+
+Player numbers flow through a `StatBlock` (`src/sim/stats.hpp`) on the player entity:
+`base` stats + a list of `Modifier{stat, add|mult, value, source}` → a recomputed `cached` set.
+Adds apply before mults per stat, so stacking order never matters; safety clamps keep defense
+below 90% and cooldowns/HP above zero. The curated stat set today: `max_hp`,
+`move_speed_mult`, `damage_mult`, `defense_pct`, `fire_rate_mult` — extending it is one enum
+value + one name-table entry + one consumer. Items (and later classes) grant/remove modifiers by
+`source` and call `World::refresh_player_stats()`, which syncs Health (gaining max HP heals by
+the gained amount; losing it clamps).
 
 ---
 

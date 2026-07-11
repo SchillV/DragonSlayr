@@ -4,6 +4,7 @@
 #include "sim/combat.hpp"
 #include "sim/components.hpp"
 #include "sim/dungeon_gen.hpp"
+#include "sim/stats.hpp"
 #include "sim/world.hpp"
 
 #include <glm/gtc/constants.hpp>
@@ -185,6 +186,26 @@ TEST_CASE("player death freezes the run and records run_end") {
         world.tick(cmd, 1.0f / 60.0f);
     }
     CHECK(world.reg.get<Transform>(world.player).pos == before);
+}
+
+TEST_CASE("damage_mult scales outgoing damage") {
+    World world = make_world();
+    world.reg.get<StatBlock>(world.player).add({StatId::DamageMult, Modifier::Op::Mult, 2.0f, 1});
+    const auto& player_tr = world.reg.get<Transform>(world.player);
+    const entt::entity target = spawn_walker(world, player_tr.pos + glm::vec2{1.0f, 0.0f});
+
+    PlayerCmd cmd;
+    cmd.yaw = 0.0f;
+    cmd.attack_primary = true;
+    world.tick(cmd, 1.0f / 60.0f);
+    CHECK_FALSE(world.reg.valid(target)); // 7 * 2 = 14 >= 12 hp: one-shot
+}
+
+TEST_CASE("defense_pct reduces incoming damage") {
+    World world = make_world();
+    world.reg.get<StatBlock>(world.player).add({StatId::DefensePct, Modifier::Op::Add, 0.5f, 1});
+    damage_player(world, 20.0f, 0, {0.0f, 0.0f});
+    CHECK(world.reg.get<Health>(world.player).hp == doctest::Approx(90.0f)); // half blocked
 }
 
 TEST_CASE("god mode blocks damage and counts as a cheat") {

@@ -6,7 +6,9 @@
 #include "sim/combat.hpp"
 #include "sim/components.hpp"
 #include "sim/enemy_ai.hpp"
+#include "sim/stats.hpp"
 
+#include <algorithm>
 #include <utility>
 #include <vector>
 
@@ -64,7 +66,10 @@ void World::init_from_dungeon(DungeonResult d, uint64_t s) {
     reg.emplace<PrevTransform>(player, spawn, 0.0f);
     reg.emplace<Velocity>(player);
     reg.emplace<Body>(player, 0.3f);
-    reg.emplace<Health>(player, 100.0f, 100.0f);
+    // All player numbers flow through the stat block (base + item/class
+    // modifiers -> cached); Health seeds from it instead of a hardcoded 100.
+    const StatBlock& stats = reg.emplace<StatBlock>(player);
+    reg.emplace<Health>(player, stats.cached.max_hp, stats.cached.max_hp);
     reg.emplace<Player>(player);
 
     // Weighted spawn table: each spawn point draws an eligible enemy by
@@ -173,6 +178,15 @@ void World::apply_content(ContentDB new_content) {
     content = std::move(new_content);
     log_info("content reloaded: {} enemy defs, {} live enemies removed", content.enemies.size(),
              doomed.size());
+}
+
+void World::refresh_player_stats() {
+    auto& stats = reg.get<StatBlock>(player);
+    stats.recompute();
+    auto& hp = reg.get<Health>(player);
+    const float gained = stats.cached.max_hp - hp.max_hp;
+    hp.max_hp = stats.cached.max_hp;
+    hp.hp = std::clamp(hp.hp + std::max(gained, 0.0f), 0.0f, hp.max_hp);
 }
 
 void World::on_player_dash(glm::vec2 dir) {

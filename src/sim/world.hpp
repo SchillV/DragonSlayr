@@ -40,6 +40,11 @@ struct World {
     // (later) floor transitions.
     entt::entity spawn_enemy(int def_index, glm::vec2 pos);
 
+    // Recomputes the player's StatBlock and syncs Health to it: raising max
+    // HP heals by the gained amount, lowering it clamps. Call after granting
+    // or removing stat modifiers (items, classes, floor effects).
+    void refresh_player_stats();
+
     // Hot reload: swap definitions, remapping live entities by string id.
     // Entities whose def disappeared are destroyed.
     void apply_content(ContentDB new_content);

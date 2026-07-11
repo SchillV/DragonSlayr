@@ -2,6 +2,7 @@
 
 #include "core/cvar.hpp"
 #include "sim/components.hpp"
+#include "sim/stats.hpp"
 #include "sim/world.hpp"
 
 #include <algorithm>
@@ -38,7 +39,8 @@ void player_apply_cmd(World& world, const PlayerCmd& cmd, float dt) {
         vel.v *= std::max(speed - drop, 0.0f) / speed;
     }
 
-    const float max_speed = cmd.run ? sv_run_speed.value : sv_walk_speed.value;
+    const float speed_mult = world.reg.get<StatBlock>(world.player).cached.move_speed_mult;
+    const float max_speed = (cmd.run ? sv_run_speed.value : sv_walk_speed.value) * speed_mult;
     const bool has_wish = glm::dot(cmd.wish_dir, cmd.wish_dir) > 0.0f;
     if (has_wish) {
         vel.v += cmd.wish_dir * (sv_accel.value * dt);
@@ -57,7 +59,7 @@ void player_apply_cmd(World& world, const PlayerCmd& cmd, float dt) {
     }
     if (pl.dash_time_left > 0.0f) {
         pl.dash_time_left -= dt;
-        vel.v = pl.dash_dir * sv_dash_speed.value;
+        vel.v = pl.dash_dir * sv_dash_speed.value * speed_mult;
     }
 }
 

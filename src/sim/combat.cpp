@@ -3,6 +3,7 @@
 #include "core/cvar.hpp"
 #include "sim/collision.hpp"
 #include "sim/components.hpp"
+#include "sim/stats.hpp"
 #include "sim/world.hpp"
 
 #include <glm/gtc/constants.hpp>
@@ -78,6 +79,7 @@ entt::entity spawn_projectile(World& world, Team team, uint16_t weapon, uint16_t
 void player_combat(World& world, const PlayerCmd& cmd, float dt) {
     auto& pl = world.reg.get<Player>(world.player);
     const auto& tr = world.reg.get<Transform>(world.player);
+    const Stats& stats = world.reg.get<StatBlock>(world.player).cached;
 
     pl.primary_cooldown = std::max(0.0f, pl.primary_cooldown - dt);
     pl.secondary_cooldown = std::max(0.0f, pl.secondary_cooldown - dt);
@@ -88,8 +90,9 @@ void player_combat(World& world, const PlayerCmd& cmd, float dt) {
     // Sword.
     if (cmd.attack_primary && pl.primary_cooldown <= 0.0f && world.primary_weapon >= 0) {
         const WeaponDef& w = world.content.weapons[static_cast<size_t>(world.primary_weapon)];
-        pl.primary_cooldown = w.cooldown_s;
+        pl.primary_cooldown = w.cooldown_s / stats.fire_rate_mult;
         pl.swing_anim = 1.0f;
+        const float damage = w.damage * stats.damage_mult;
 
         bool any_hit = false;
         uint16_t hit_def = 0xffff;
@@ -100,7 +103,7 @@ void player_combat(World& world, const PlayerCmd& cmd, float dt) {
             if (grid_raycast(world.map(), tr.pos, etr.pos)) {
                 continue; // wall between us
             }
-            damage_enemy(world, e, w.damage, world.primary_weapon);
+            damage_enemy(world, e, damage, world.primary_weapon);
             any_hit = true;
             hit_def = enemy.def;
         }
@@ -111,7 +114,7 @@ void player_combat(World& world, const PlayerCmd& cmd, float dt) {
         ev.flags = static_cast<uint8_t>((any_hit ? 1 : 0) |
                                         (static_cast<unsigned>(world.primary_weapon) << 1));
         ev.def = hit_def;
-        ev.a = w.damage;
+        ev.a = damage;
         ev.x = tr.pos.x;
         ev.y = tr.pos.y;
         ev.yaw = cmd.yaw;
@@ -121,13 +124,13 @@ void player_combat(World& world, const PlayerCmd& cmd, float dt) {
     // Arcane bolt.
     if (cmd.attack_secondary && pl.secondary_cooldown <= 0.0f && world.secondary_weapon >= 0) {
         const WeaponDef& w = world.content.weapons[static_cast<size_t>(world.secondary_weapon)];
-        pl.secondary_cooldown = w.cooldown_s;
+        pl.secondary_cooldown = w.cooldown_s / stats.fire_rate_mult;
         pl.cast_anim = 1.0f;
 
         const glm::vec2 dir{std::cos(cmd.yaw), std::sin(cmd.yaw)};
         spawn_projectile(world, Team::Player, static_cast<uint16_t>(world.secondary_weapon),
-                         /*src_def=*/0xffff, tr.pos + dir * 0.4f, dir, w.speed, w.damage, w.radius,
-                         w.ttl_s);
+                         /*src_def=*/0xffff, tr.pos + dir * 0.4f, dir, w.speed,
+                         w.damage * stats.damage_mult, w.radius, w.ttl_s);
 
         TelemetryEvent ev;
         ev.tick = static_cast<uint32_t>(world.tick_count);
@@ -243,6 +246,7 @@ void damage_player(World& world, float amount, uint16_t src_def, glm::vec2 src_p
     auto& pl = world.reg.get<Player>(world.player);
     const auto& tr = world.reg.get<Transform>(world.player);
 
+    amount *= 1.0f - world.reg.get<StatBlock>(world.player).cached.defense_pct;
     hp.hp -= amount;
     pl.hurt_flash = 1.0f;
 

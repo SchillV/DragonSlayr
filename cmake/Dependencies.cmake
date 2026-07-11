@@ -58,9 +58,13 @@ FetchContent_Declare(glm
 )
 
 # --- nlohmann/json (data files, saves, telemetry) -------------------------------
-# The release tarball is tiny; the git repo is enormous.
+# Shallow tag clone rather than the (tiny) release tarball: release-asset
+# downloads (objects.githubusercontent.com) are blocked in some sandboxed dev
+# environments, while git clones and raw.githubusercontent.com are not.
 FetchContent_Declare(nlohmann_json
-  URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
+  GIT_REPOSITORY https://github.com/nlohmann/json.git
+  GIT_TAG v3.12.0
+  GIT_SHALLOW TRUE
   SYSTEM
   EXCLUDE_FROM_ALL
 )

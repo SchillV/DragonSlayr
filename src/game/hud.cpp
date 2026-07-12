@@ -225,6 +225,31 @@ void build_hud(FrameView& view, const HudState& state, glm::vec2 vp, const FontA
         }
     }
 
+    // Boss bar, top-center, while a boss fight is on.
+    if (state.boss_name && font && font->valid()) {
+        const glm::vec2 size{260.0f * scale, 10.0f * scale};
+        const glm::vec2 pos{(vp.x - size.x) * 0.5f, 26.0f * scale};
+        push_solid(view, pos - glm::vec2{2.0f * scale}, size + glm::vec2{4.0f * scale},
+                   {0.0f, 0.0f, 0.0f, 0.7f});
+        const glm::vec4 fill = state.boss_phase >= 2
+                                   ? glm::vec4{0.95f, 0.2f, 0.08f, 0.95f}
+                                   : glm::vec4{0.878f, 0.282f, 0.122f, 0.9f};
+        push_solid(view, pos, {size.x * std::clamp(state.boss_hp01, 0.0f, 1.0f), size.y}, fill);
+        const glm::vec2 nsize = measure_text(*font, state.boss_name, scale, 2.0f);
+        emit_text(view.overlay_text, *font, state.boss_name,
+                  {(vp.x - nsize.x) * 0.5f, pos.y - nsize.y - 4.0f * scale}, scale,
+                  {0.91f, 0.85f, 0.69f, 0.95f}, 2.0f);
+    }
+
+    // The stairs refusing you while the boss lives.
+    if (state.seal_hint > 0.0f && font && font->valid()) {
+        const std::string hint = "THE SEAL HOLDS · SLAY THE BEAST";
+        const glm::vec2 hsize = measure_text(*font, hint, scale, 1.0f);
+        emit_text(view.overlay_text, *font, hint,
+                  {(vp.x - hsize.x) * 0.5f, vp.y * 0.62f}, scale,
+                  {0.878f, 0.282f, 0.122f, std::min(state.seal_hint * 2.0f, 1.0f)}, 1.0f);
+    }
+
     // Score + floor, top-right.
     if (font && font->valid()) {
         const std::string score_text = std::format("SCORE {}", state.score);

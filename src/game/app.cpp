@@ -12,6 +12,8 @@
 #include "render/font.hpp"
 #include "game/intro.hpp"
 #include "game/profile.hpp"
+
+#include <glm/gtc/constants.hpp>
 #include "game/skill_tree_ui.hpp"
 #include "game/stats_ui.hpp"
 #include "render/gpu_renderer.hpp"
@@ -179,6 +181,9 @@ SpriteAtlas rebuild_sprite_atlas(IRenderer& renderer, const ContentDB& content,
     for (const ItemDef& def : content.items) {
         add(def.sprite);
     }
+    for (const BossDef& def : content.bosses) {
+        add(def.sprite);
+    }
     renderer.set_sprite_textures(layers);
     return atlas;
 }
@@ -225,6 +230,12 @@ void load_content(World& world, const std::filesystem::path& data_dir) {
         log_warn("upgrade content unavailable: {}", error);
     } else {
         log_info("loaded {} upgrade defs", world.content.upgrades.size());
+    }
+    error.clear();
+    if (!world.content.load_bosses(data_dir / "bosses.json", &error)) {
+        log_warn("boss content unavailable: {}", error);
+    } else {
+        log_info("loaded {} boss defs", world.content.bosses.size());
     }
 }
 
@@ -1088,6 +1099,14 @@ int App::run_windowed(Platform& platform) {
                 break;
             case EvType::PlayerDash: audio.play("dash"); break;
             case EvType::LevelUp: audio.play("levelup"); break;
+            case EvType::BossEngaged: audio.play("heartbeat"); break; // the seal stirs
+            case EvType::BossKilled:
+                audio.play("kill");
+                if (fx_hitmarker.as_bool()) {
+                    fx_hitmarker_t = 1.0f;
+                    fx_hitmarker_kill = true;
+                }
+                break;
             default: break;
             }
         }
@@ -1180,6 +1199,39 @@ int App::run_windowed(Platform& platform) {
                                     static_cast<float>(layer),
                                     flash ? flash->t : 0.0f});
         }
+        // The glowy "bolt" texture doubles as projectile and telegraph art.
+        const int bolt_layer = sprite_atlas.layer_of("bolt");
+
+        // The boss: a big billboard, plus a ring of embers telegraphing a
+        // ground slam while it winds up.
+        for (auto [e, boss, btr, bprev] :
+             world.reg.view<const Boss, const Transform, const PrevTransform>().each()) {
+            const BossDef& def = world.content.bosses[boss.def];
+            const int layer = sprite_atlas.layer_of(def.sprite);
+            const glm::vec2 bp = glm::mix(bprev.pos, btr.pos, alpha);
+            if (layer >= 0) {
+                const HurtFlash* flash = world.reg.try_get<HurtFlash>(e);
+                view.sprites.push_back({{bp.x, 0.0f, bp.y},
+                                        def.sprite_size,
+                                        static_cast<float>(layer),
+                                        flash ? flash->t : 0.0f});
+            }
+            if (boss.active_pattern != 0xff &&
+                def.patterns[boss.active_pattern].pattern == BossPattern::GroundSlam &&
+                bolt_layer >= 0) {
+                const float r = def.patterns[boss.active_pattern].radius;
+                for (int i = 0; i < 12; ++i) {
+                    const float ang = glm::two_pi<float>() * static_cast<float>(i) / 12.0f;
+                    view.sprites.push_back(
+                        {{boss.slam_pos.x + std::cos(ang) * r, 0.1f,
+                          boss.slam_pos.y + std::sin(ang) * r},
+                         {0.22f, 0.22f},
+                         static_cast<float>(bolt_layer),
+                         1.0f}); // red-tinted warning embers
+                }
+            }
+        }
+
         // Floor pickups: gently bobbing billboards.
         for (auto [e, pickup, ptr] : world.reg.view<const Pickup, const Transform>().each()) {
             const ItemDef& def = world.content.items[pickup.item];
@@ -1197,7 +1249,6 @@ int App::run_windowed(Platform& platform) {
 
         // All projectiles render as the glowy "bolt"; enemy shots are tinted
         // red via the sprite flash channel to read as a threat.
-        const int bolt_layer = sprite_atlas.layer_of("bolt");
         if (bolt_layer >= 0) {
             for (auto [e, proj, ptr, pprev] :
                  world.reg.view<const Projectile, const Transform, const PrevTransform>().each()) {
@@ -1236,6 +1287,16 @@ int App::run_windowed(Platform& platform) {
             hud.hitmarker_kill = fx_hitmarker_kill;
             hud.lowhp_threshold = std::clamp(fx_lowhp.value, 0.0f, 1.0f);
             hud.indicators = fx_indicators;
+            hud.seal_hint = world.seal_hint;
+            if (world.boss_alive()) {
+                const auto& boss = world.reg.get<Boss>(world.boss_entity);
+                if (boss.engaged) {
+                    const auto& bhp = world.reg.get<Health>(world.boss_entity);
+                    hud.boss_name = world.content.bosses[boss.def].name.c_str();
+                    hud.boss_hp01 = bhp.max_hp > 0.0f ? bhp.hp / bhp.max_hp : 0.0f;
+                    hud.boss_phase = boss.phase;
+                }
+            }
             std::vector<FeatChip> chips;
             if (const auto* fs = world.reg.try_get<FeatSet>(world.player)) {
                 for (const FeatSet::Entry& entry : fs->entries) {

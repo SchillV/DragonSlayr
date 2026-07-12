@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/rng.hpp"
+#include "sim/boss.hpp"
 #include "sim/content.hpp"
 #include "sim/dungeon_gen.hpp"
 #include "sim/player.hpp"
@@ -45,6 +46,14 @@ struct World {
     // whoever owns the run (app / headless loop) generates the next floor and
     // calls advance_floor.
     bool floor_exit_requested = false;
+    // Boss floors (every 3rd): the boss seals the stairs until it dies.
+    entt::entity boss_entity = entt::null;
+    float seal_hint = 0.0f; // >0 briefly after refused stairs ("THE SEAL HOLDS")
+    // Pattern-weight multipliers per counter-tag, injected by the wyrm brain
+    // (all 1 = data weights only). Copied in at run/floor start by the owner.
+    BossTagWeights boss_tag_weights{1.0f, 1.0f, 1.0f, 1.0f};
+
+    bool boss_alive() const { return reg.valid(boss_entity); }
 
     // Call after content is loaded; spawns the player and enemies.
     void init_from_dungeon(DungeonResult d, uint64_t seed);
@@ -62,6 +71,10 @@ struct World {
 
     // Creates a floor pickup for a ContentDB::items index.
     entt::entity spawn_pickup(int item_index, glm::vec2 pos);
+
+    // Creates the floor boss (ContentDB::bosses index) at a position; HP
+    // scales with current_floor. Sets boss_entity.
+    entt::entity spawn_boss(int def_index, glm::vec2 pos);
 
     // Recomputes the player's StatBlock and syncs Health to it: raising max
     // HP heals by the gained amount, lowering it clamps. Call after granting

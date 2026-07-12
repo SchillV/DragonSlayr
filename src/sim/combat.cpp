@@ -1,6 +1,7 @@
 #include "sim/combat.hpp"
 
 #include "core/cvar.hpp"
+#include "sim/boss.hpp"
 #include "sim/collision.hpp"
 #include "sim/components.hpp"
 #include "sim/items.hpp"
@@ -19,9 +20,6 @@ namespace ds {
 namespace {
 
 CVar& sv_god = cvar_register("sv.god", 0.0f, "player takes no damage", CVAR_CHEAT);
-
-// Tag marking entities for destruction at the end of the tick.
-struct Doomed {};
 
 float wrap_angle(float a) {
     const float two_pi = glm::two_pi<float>();
@@ -110,6 +108,17 @@ void player_combat(World& world, const PlayerCmd& cmd, float dt) {
             any_hit = true;
             hit_def = enemy.def;
         }
+        for (auto [e, boss, btr] : world.reg.view<Boss, Transform>().each()) {
+            if (!in_melee_arc(tr.pos, cmd.yaw, w.range, w.arc_deg, btr.pos)) {
+                continue;
+            }
+            if (grid_raycast(world.map(), tr.pos, btr.pos)) {
+                continue;
+            }
+            damage_boss(world, e, damage, world.primary_weapon);
+            items_dispatch(world, ItemHookDef::Trigger::OnHit, {btr.pos});
+            any_hit = true;
+        }
 
         TelemetryEvent ev;
         ev.tick = static_cast<uint32_t>(world.tick_count);
@@ -182,6 +191,30 @@ void projectiles_update(World& world, float dt) {
                     world.reg.emplace_or_replace<Doomed>(e);
                     consumed = true;
                     break;
+                }
+            }
+            if (!consumed) {
+                for (auto [bn, boss, btr, bbody] :
+                     world.reg.view<Boss, Transform, Body>().each()) {
+                    const float reach = proj.radius + bbody.radius;
+                    if (seg_point_dist2(tr.pos, next, btr.pos) <= reach * reach) {
+                        damage_boss(world, bn, proj.damage,
+                                    proj.weapon == 0xffff ? -1 : static_cast<int>(proj.weapon));
+                        items_dispatch(world, ItemHookDef::Trigger::OnHit, {btr.pos});
+
+                        TelemetryEvent ev;
+                        ev.tick = static_cast<uint32_t>(world.tick_count);
+                        ev.type = EvType::ProjectileHit;
+                        ev.def = 0xfffe; // a boss, not an enemies[] index
+                        ev.a = proj.damage;
+                        ev.x = btr.pos.x;
+                        ev.y = btr.pos.y;
+                        world.telem.record(ev);
+
+                        world.reg.emplace_or_replace<Doomed>(e);
+                        consumed = true;
+                        break;
+                    }
                 }
             }
         } else if (!world.player_dead) {

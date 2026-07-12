@@ -1,0 +1,45 @@
+{
+  "ember_tyrant": {
+    "name": "The Ember Tyrant",
+    "sprite": "ember_tyrant",
+    "sprite_size": [2.4, 2.4],
+    "hp": 220,
+    "hp_per_floor": 55,
+    "speed": 2.1,
+    "radius": 0.7,
+    "aggro_radius": 11.0,
+    "contact_damage": 18,
+    "phase2_at": 0.45,
+    "score": 600,
+    "xp": 130,
+    "min_floor": 1,
+    "spawn_weight": 1.0,
+    "patterns": [
+      { "pattern": "ground_slam", "weight": 1.0, "cooldown_s": 3.4, "damage": 26, "radius": 2.6 },
+      { "pattern": "charge", "weight": 0.8, "cooldown_s": 5.0, "damage": 20, "speed": 15.0 },
+      { "pattern": "projectile_ring", "weight": 0.9, "cooldown_s": 5.5, "damage": 10, "count": 10, "speed": 7.0 },
+      { "pattern": "summon_adds", "weight": 0.6, "cooldown_s": 9.0, "count": 3 }
+    ]
+  },
+  "pale_matron": {
+    "name": "The Pale Matron",
+    "sprite": "pale_matron",
+    "sprite_size": [2.0, 2.6],
+    "hp": 180,
+    "hp_per_floor": 45,
+    "speed": 2.6,
+    "radius": 0.6,
+    "aggro_radius": 12.0,
+    "contact_damage": 14,
+    "phase2_at": 0.5,
+    "score": 550,
+    "xp": 120,
+    "min_floor": 6,
+    "spawn_weight": 0.8,
+    "patterns": [
+      { "pattern": "summon_adds", "weight": 1.2, "cooldown_s": 7.0, "count": 4 },
+      { "pattern": "projectile_ring", "weight": 1.0, "cooldown_s": 4.2, "damage": 9, "count": 14, "speed": 8.0 },
+      { "pattern": "charge", "weight": 0.5, "cooldown_s": 6.0, "damage": 16, "speed": 18.0 }
+    ]
+  }
+}

@@ -62,6 +62,10 @@ struct HurtFlash {
     float t = 0.0f; // 1 -> 0
 };
 
+// Marked for destruction at the end of the tick (cleanup_dead) — never
+// destroy entities mid-system while views are being iterated.
+struct Doomed {};
+
 // A floor item waiting to be walked over.
 struct Pickup {
     uint16_t item = 0;      // index into ContentDB::items
@@ -92,6 +96,24 @@ struct TempMods {
     };
     std::vector<Entry> entries;
     uint16_t next_token = 0; // wraps within the reserved range
+};
+
+// The floor boss. Bosses are not Enemy entities: they steer straight at the
+// player in their open arena and act through data-weighted patterns instead
+// of the shared chase AI.
+struct Boss {
+    uint16_t def = 0; // index into ContentDB::bosses
+    int phase = 1;
+    bool engaged = false;
+    float pattern_cooldown = 1.6f; // time until the next pattern pick
+    uint8_t active_pattern = 0xff; // index into def.patterns, 0xff = none
+    float pattern_time = 0.0f;     // elapsed inside the active pattern
+    glm::vec2 charge_dir{0.0f};
+    glm::vec2 slam_pos{0.0f};
+    float contact_cooldown = 0.0f;
+    // fight-summary accumulators (telemetry)
+    uint32_t engage_tick = 0;
+    float player_hp_at_engage = 0.0f;
 };
 
 enum class AiState : uint8_t { Idle, Chase, Windup, Recover, Lunge };

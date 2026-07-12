@@ -375,6 +375,39 @@ void parse_class(JsonReader& r, ClassDef& out) {
     r.opt_s("tree", out.tree);
 }
 
+void parse_boss(JsonReader& r, BossDef& out) {
+    r.opt_s("name", out.name);
+    r.req_s("sprite", out.sprite);
+    r.opt_vec2("sprite_size", out.sprite_size);
+    r.req_f("hp", out.hp);
+    r.opt_f("hp_per_floor", out.hp_per_floor);
+    r.opt_f("speed", out.speed);
+    r.opt_f("radius", out.radius);
+    r.opt_f("aggro_radius", out.aggro_radius);
+    r.opt_f("contact_damage", out.contact_damage);
+    r.opt_f("phase2_at", out.phase2_at);
+    r.opt_i("score", out.score);
+    r.opt_i("xp", out.xp);
+    r.opt_f("spawn_weight", out.spawn_weight);
+    r.opt_i("min_floor", out.min_floor);
+    r.arr("patterns", [&out](JsonReader& p) {
+        BossPatternDef def;
+        p.enum_of("pattern", def.pattern,
+                  {{"ground_slam", BossPattern::GroundSlam},
+                   {"summon_adds", BossPattern::SummonAdds},
+                   {"charge", BossPattern::Charge},
+                   {"projectile_ring", BossPattern::ProjectileRing}},
+                  /*required=*/true);
+        p.opt_f("weight", def.weight);
+        p.opt_f("cooldown_s", def.cooldown_s);
+        p.opt_f("damage", def.damage);
+        p.opt_f("radius", def.radius);
+        p.opt_i("count", def.count);
+        p.opt_f("speed", def.speed);
+        out.patterns.push_back(def);
+    });
+}
+
 void parse_upgrade(JsonReader& r, UpgradeDef& out) {
     r.opt_s("name", out.name);
     r.opt_s("desc", out.desc);
@@ -457,6 +490,10 @@ int ContentDB::find_skill_tree(std::string_view id) const {
 
 int ContentDB::find_upgrade(std::string_view id) const {
     return find_by_id(upgrades, id);
+}
+
+int ContentDB::find_boss(std::string_view id) const {
+    return find_by_id(bosses, id);
 }
 
 bool ContentDB::load_enemies_from_string(std::string_view json_text, std::string* error) {
@@ -580,6 +617,15 @@ bool ContentDB::load_upgrades_from_string(std::string_view json_text, std::strin
 bool ContentDB::load_upgrades(const std::filesystem::path& path, std::string* error) {
     std::string text;
     return load_category_file(path, text, error) && load_upgrades_from_string(text, error);
+}
+
+bool ContentDB::load_bosses_from_string(std::string_view json_text, std::string* error) {
+    return load_category(json_text, "bosses", bosses, parse_boss, error);
+}
+
+bool ContentDB::load_bosses(const std::filesystem::path& path, std::string* error) {
+    std::string text;
+    return load_category_file(path, text, error) && load_bosses_from_string(text, error);
 }
 
 } // namespace ds

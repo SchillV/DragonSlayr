@@ -112,6 +112,40 @@ struct FeatDef {
     std::vector<ItemHookDef> hooks;
 };
 
+// Boss attack patterns are a curated C++ palette (hybrid philosophy); data
+// weights, times and numbers them. Each pattern type carries a counter-tag
+// (see boss_pattern_tag) that the wyrm brain uses to punish player styles.
+enum class BossPattern : uint8_t { GroundSlam, SummonAdds, Charge, ProjectileRing };
+
+struct BossPatternDef {
+    BossPattern pattern = BossPattern::GroundSlam;
+    float weight = 1.0f;
+    float cooldown_s = 4.0f; // after this pattern finishes
+    float damage = 15.0f;
+    float radius = 2.5f; // ground_slam blast
+    int count = 6;       // summon_adds / projectile_ring
+    float speed = 10.0f; // charge / ring projectiles
+};
+
+struct BossDef {
+    std::string id;
+    std::string name;
+    std::string sprite;
+    glm::vec2 sprite_size{2.2f, 2.2f};
+    float hp = 200.0f;
+    float hp_per_floor = 50.0f; // added per floor beyond the first
+    float speed = 2.2f;
+    float radius = 0.7f;
+    float aggro_radius = 11.0f;
+    float contact_damage = 16.0f;
+    float phase2_at = 0.45f; // hp fraction: patterns quicken below this
+    int score = 600;
+    int xp = 120;
+    float spawn_weight = 1.0f;
+    int min_floor = 1;
+    std::vector<BossPatternDef> patterns;
+};
+
 // A permanent hub upgrade (meta-progression): each rank re-applies the
 // modifier list, bought with embers at the Sanctum, stored in the profile.
 struct UpgradeDef {
@@ -196,6 +230,7 @@ struct ContentDB {
     std::vector<ClassDef> classes;
     std::vector<SkillTreeDef> skill_trees;
     std::vector<UpgradeDef> upgrades;
+    std::vector<BossDef> bosses;
 
     int find_enemy(std::string_view id) const;
     int find_weapon(std::string_view id) const;
@@ -204,6 +239,7 @@ struct ContentDB {
     int find_class(std::string_view id) const;
     int find_skill_tree(std::string_view id) const;
     int find_upgrade(std::string_view id) const;
+    int find_boss(std::string_view id) const;
 
     // On failure: returns false, fills `error` (with the offending JSON key
     // path) and leaves the db unchanged.
@@ -222,6 +258,8 @@ struct ContentDB {
     bool load_skill_trees(const std::filesystem::path& path, std::string* error = nullptr);
     bool load_upgrades_from_string(std::string_view json_text, std::string* error = nullptr);
     bool load_upgrades(const std::filesystem::path& path, std::string* error = nullptr);
+    bool load_bosses_from_string(std::string_view json_text, std::string* error = nullptr);
+    bool load_bosses(const std::filesystem::path& path, std::string* error = nullptr);
 };
 
 } // namespace ds

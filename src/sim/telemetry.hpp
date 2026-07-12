@@ -30,6 +30,9 @@ enum class EvType : uint8_t {
     FeatGained,       // def = feat, a = stack count after
     LevelUp,          // a = new level, b = xp needed for the next
     SkillPurchase,    // def = node index, flags = tree index, a = cost
+    BossEngaged,      // def = boss; marks the fight window's start
+    BossPattern,      // def = boss, a = BossPattern enum, b = phase
+    BossKilled,       // def = boss, a = fight seconds, b = player hp lost
 };
 
 struct TelemetryEvent {

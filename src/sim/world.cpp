@@ -2,6 +2,7 @@
 
 #include "core/cvar.hpp"
 #include "core/log.hpp"
+#include "sim/boss.hpp"
 #include "sim/collision.hpp"
 #include "sim/combat.hpp"
 #include "sim/components.hpp"
@@ -169,11 +170,44 @@ void World::setup_floor(DungeonResult d) {
     reg.emplace<Health>(player, stats.cached.max_hp, stats.cached.max_hp);
     reg.emplace<Player>(player);
 
+    // Boss floors: every 3rd floor hosts a boss in the arena room (falling
+    // back to the largest room); the arena's regular spawns are ceded to it
+    // and the stairs stay sealed while it lives.
+    boss_entity = entt::null;
+    seal_hint = 0.0f;
+    const Room* boss_room = nullptr;
+    if (current_floor % 3 == 0 && !content.bosses.empty()) {
+        for (const Room& r : dungeon.rooms) {
+            if (r.type == RoomType::Arena) {
+                boss_room = &r;
+            }
+        }
+        if (!boss_room && !dungeon.rooms.empty()) {
+            boss_room = &dungeon.rooms[0];
+            for (const Room& r : dungeon.rooms) {
+                if (r.area() > boss_room->area()) {
+                    boss_room = &r;
+                }
+            }
+        }
+        if (boss_room) {
+            const int def_index = pick_weighted_for_floor(content.bosses, current_floor, rng);
+            if (def_index >= 0) {
+                const glm::ivec2 c = boss_room->center();
+                spawn_boss(def_index,
+                           {static_cast<float>(c.x) + 0.5f, static_cast<float>(c.y) + 0.5f});
+            }
+        }
+    }
+
     // Weighted spawn table: each spawn point draws an eligible enemy by
     // spawn_weight. Adding an enemy to enemies.json with spawn_weight > 0 is
     // all it takes to have it appear.
     bool spawned_any = false;
     for (const glm::ivec2 sp : dungeon.enemy_spawns) {
+        if (boss_alive() && boss_room && boss_room->contains(sp)) {
+            continue; // the arena belongs to the boss
+        }
         const int def_index = pick_enemy_for_floor(content, current_floor, rng);
         if (def_index < 0) {
             break; // nothing eligible on this floor
@@ -211,6 +245,23 @@ entt::entity World::spawn_enemy(int def_index, glm::vec2 pos) {
     return e;
 }
 
+entt::entity World::spawn_boss(int def_index, glm::vec2 pos) {
+    const BossDef& def = content.bosses[static_cast<size_t>(def_index)];
+    const entt::entity e = reg.create();
+    reg.emplace<Transform>(e, pos, 0.0f);
+    reg.emplace<PrevTransform>(e, pos, 0.0f);
+    reg.emplace<Velocity>(e);
+    reg.emplace<Body>(e, def.radius);
+    const float hp =
+        def.hp + def.hp_per_floor * static_cast<float>(std::max(current_floor - 1, 0));
+    reg.emplace<Health>(e, hp, hp);
+    Boss boss;
+    boss.def = static_cast<uint16_t>(def_index);
+    reg.emplace<Boss>(e, boss);
+    boss_entity = e;
+    return e;
+}
+
 entt::entity World::spawn_pickup(int item_index, glm::vec2 pos) {
     const entt::entity e = reg.create();
     reg.emplace<Transform>(e, pos, 0.0f);
@@ -230,15 +281,24 @@ void World::tick(const PlayerCmd& cmd, float dt) {
         if (!content.enemies.empty()) {
             enemy_ai_think(*this, dt);
         }
+        if (!content.bosses.empty()) {
+            boss_ai_think(*this, dt);
+        }
         move_and_collide(*this, dt);
         enemy_separation(*this, dt);
         projectiles_update(*this, dt);
         items_update(*this, dt);
 
-        // Standing on the stairs asks the run owner for the next floor.
+        // Standing on the stairs asks the run owner for the next floor —
+        // unless a living boss holds the seal.
+        seal_hint = std::max(0.0f, seal_hint - dt);
         const glm::vec2 ppos = reg.get<Transform>(player).pos;
         if (glm::ivec2{static_cast<int>(ppos.x), static_cast<int>(ppos.y)} == dungeon.exit_pos) {
-            floor_exit_requested = true;
+            if (boss_alive()) {
+                seal_hint = 1.5f;
+            } else {
+                floor_exit_requested = true;
+            }
         }
 
         if (tick_count % 15 == 0) { // 4 Hz movement sample for the boss brain

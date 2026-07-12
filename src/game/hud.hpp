@@ -49,6 +49,11 @@ struct HudState {
     float lowhp_threshold = 0.3f; // fraction of max hp where the warning starts
     std::span<const DamageIndicator> indicators;
     std::span<const FeatChip> feats;
+    // Boss fight: bar + name while engaged; seal hint when the stairs refuse.
+    const char* boss_name = nullptr;
+    float boss_hp01 = 0.0f;
+    int boss_phase = 1;
+    float seal_hint = 0.0f; // 1 -> 0
 };
 
 // Screen rotation of a damage wedge: 0 = the hit came from straight ahead

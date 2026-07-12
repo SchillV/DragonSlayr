@@ -30,6 +30,9 @@ const char* type_name(EvType t) {
     case EvType::FeatGained: return "feat_gained";
     case EvType::LevelUp: return "level_up";
     case EvType::SkillPurchase: return "skill_purchase";
+    case EvType::BossEngaged: return "boss_engaged";
+    case EvType::BossPattern: return "boss_pattern";
+    case EvType::BossKilled: return "boss_killed";
     }
     return "unknown";
 }
@@ -189,6 +192,20 @@ std::filesystem::path TelemetryRecorder::write_json(const std::filesystem::path&
             }
             e["cost"] = static_cast<int>(ev.a);
             break;
+        case EvType::BossEngaged:
+        case EvType::BossPattern:
+        case EvType::BossKilled: {
+            e["boss"] = ev.def < content.bosses.size() ? content.bosses[ev.def].id
+                                                       : std::format("#{}", ev.def);
+            if (ev.type == EvType::BossPattern) {
+                e["pattern"] = static_cast<int>(ev.a);
+                e["phase"] = static_cast<int>(ev.b);
+            } else if (ev.type == EvType::BossKilled) {
+                e["fight_s"] = ev.a;
+                e["hp_lost"] = ev.b;
+            }
+            break;
+        }
         case EvType::RunStart:
         case EvType::RunEnd:
             break;

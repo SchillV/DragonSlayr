@@ -118,6 +118,22 @@ public:
         }
     }
 
+    void opt_s_array(const char* key, std::vector<std::string>& out) {
+        const json* v = find(key, /*required=*/false);
+        if (!v) {
+            return;
+        }
+        if (!v->is_array()) {
+            return fail(key, "expected an array of strings");
+        }
+        for (const auto& e : *v) {
+            if (!e.is_string()) {
+                return fail(key, "expected an array of strings");
+            }
+            out.push_back(e.get<std::string>());
+        }
+    }
+
     // For custom validation in parse functions (e.g. stat name lookups).
     void error_at(const char* key, std::string_view what) { fail(key, what); }
 
@@ -314,6 +330,18 @@ void parse_feat(JsonReader& r, FeatDef& out) {
     parse_hook_list(r, out.hooks);
 }
 
+void parse_class(JsonReader& r, ClassDef& out) {
+    r.opt_s("name", out.name);
+    r.opt_s("desc", out.desc);
+    r.opt_i("str", out.str);
+    r.opt_i("dex", out.dex);
+    r.opt_i("vit", out.vit);
+    r.opt_i("mag", out.mag);
+    r.opt_s_array("feats", out.feats);
+    r.opt_s("primary", out.primary);
+    r.opt_s("secondary", out.secondary);
+}
+
 void parse_weapon(JsonReader& r, WeaponDef& out) {
     r.opt_s("name", out.name);
     r.enum_of("type", out.type,
@@ -354,6 +382,10 @@ int ContentDB::find_feat(std::string_view id) const {
     return find_by_id(feats, id);
 }
 
+int ContentDB::find_class(std::string_view id) const {
+    return find_by_id(classes, id);
+}
+
 bool ContentDB::load_enemies_from_string(std::string_view json_text, std::string* error) {
     return load_category(json_text, "enemies", enemies, parse_enemy, error);
 }
@@ -388,6 +420,15 @@ bool ContentDB::load_feats_from_string(std::string_view json_text, std::string* 
 bool ContentDB::load_feats(const std::filesystem::path& path, std::string* error) {
     std::string text;
     return load_category_file(path, text, error) && load_feats_from_string(text, error);
+}
+
+bool ContentDB::load_classes_from_string(std::string_view json_text, std::string* error) {
+    return load_category(json_text, "classes", classes, parse_class, error);
+}
+
+bool ContentDB::load_classes(const std::filesystem::path& path, std::string* error) {
+    std::string text;
+    return load_category_file(path, text, error) && load_classes_from_string(text, error);
 }
 
 } // namespace ds

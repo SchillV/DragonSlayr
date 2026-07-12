@@ -203,6 +203,26 @@ Grant/removal flows through `src/sim/feats.{hpp,cpp}` (`grant_feat` / `remove_fe
 source = `kFeatSourceBase + index`); feats survive stairs, remap on hot reload, and record
 `feat_gained` telemetry.
 
+## Adding a class — `assets/data/classes.json`
+
+A class IS its starting numbers plus its feat collection — nothing else to code:
+
+```json
+"ranger": {
+  "name": "Ranger",
+  "desc": "Fast hands, faster feet.",
+  "dex": 4, "vit": 1,
+  "feats": ["keen_eye", "bloodlust"],
+  "primary": "sword", "secondary": "bolt"
+}
+```
+
+At run start the attribute package lands as `kClassSource` modifiers, the feats are granted
+through `grant_feat`, and the loadout picks the weapons (defaults: sword/bolt). Everything
+carries across floors automatically and resets cleanly on restart. The Title menu's
+CLASS & FEATS screen lists this roster (name, blurb, CHOSEN marker) — new classes appear there
+with zero UI work. Unknown feat ids log a warning and are skipped.
+
 ---
 
 ## Roadmap

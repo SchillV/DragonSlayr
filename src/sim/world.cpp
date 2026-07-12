@@ -6,6 +6,7 @@
 #include "sim/combat.hpp"
 #include "sim/components.hpp"
 #include "sim/enemy_ai.hpp"
+#include "sim/feats.hpp"
 #include "sim/items.hpp"
 #include "sim/stats.hpp"
 
@@ -55,6 +56,37 @@ void World::init_from_dungeon(DungeonResult d, uint64_t s) {
     telem.record(start);
 
     setup_floor(std::move(d));
+
+    // The class shapes the fresh run: attribute package as kClassSource
+    // modifiers (so the stat sheet shows where they came from), then the
+    // starting feats. Descents carry all of it automatically.
+    if (selected_class >= 0 && static_cast<size_t>(selected_class) < content.classes.size()) {
+        const ClassDef& cls = content.classes[static_cast<size_t>(selected_class)];
+        auto& stats = reg.get<StatBlock>(player);
+        auto push_attr = [&stats](StatId id, int points) {
+            if (points != 0) {
+                stats.mods.push_back(
+                    {id, Modifier::Op::Add, static_cast<float>(points), kClassSource});
+            }
+        };
+        push_attr(StatId::Str, cls.str);
+        push_attr(StatId::Dex, cls.dex);
+        push_attr(StatId::Vit, cls.vit);
+        push_attr(StatId::Mag, cls.mag);
+        refresh_player_stats();
+        reg.get<Health>(player).hp = reg.get<Health>(player).max_hp; // start whole
+
+        for (const std::string& feat_id : cls.feats) {
+            const int feat = content.find_feat(feat_id);
+            if (feat < 0) {
+                log_warn("class '{}' references unknown feat '{}'", cls.id, feat_id);
+                continue;
+            }
+            grant_feat(*this, feat);
+        }
+        log_info("class: {} (str {} dex {} vit {} mag {}, {} feats)", cls.name, cls.str, cls.dex,
+                 cls.vit, cls.mag, cls.feats.size());
+    }
 }
 
 void World::advance_floor(DungeonResult d) {
@@ -101,8 +133,13 @@ void World::setup_floor(DungeonResult d) {
     player_dead = false;
     floor_exit_requested = false;
 
-    primary_weapon = content.find_weapon("sword");
-    secondary_weapon = content.find_weapon("bolt");
+    // Loadout comes from the class (defaults keep the classic sword+bolt).
+    const ClassDef* cls =
+        selected_class >= 0 && static_cast<size_t>(selected_class) < content.classes.size()
+            ? &content.classes[static_cast<size_t>(selected_class)]
+            : nullptr;
+    primary_weapon = content.find_weapon(cls ? cls->primary : "sword");
+    secondary_weapon = content.find_weapon(cls ? cls->secondary : "bolt");
 
     player = reg.create();
     const glm::vec2 spawn{static_cast<float>(dungeon.player_spawn.x) + 0.5f,

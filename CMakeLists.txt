@@ -102,6 +102,7 @@ add_executable(ds_tests
   tests/test_items.cpp
   tests/test_floors.cpp
   tests/test_feats.cpp
+  tests/test_classes.cpp
   src/render/texture_load.cpp
   src/render/dungeon_mesh.cpp
   src/render/font.cpp

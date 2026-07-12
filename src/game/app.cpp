@@ -24,6 +24,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <chrono>
 #include <cmath>
@@ -193,6 +194,12 @@ void load_content(World& world, const std::filesystem::path& data_dir) {
         log_warn("feat content unavailable: {}", error);
     } else {
         log_info("loaded {} feat defs", world.content.feats.size());
+    }
+    error.clear();
+    if (!world.content.load_classes(data_dir / "classes.json", &error)) {
+        log_warn("class content unavailable: {}", error);
+    } else {
+        log_info("loaded {} class defs", world.content.classes.size());
     }
 }
 
@@ -458,6 +465,7 @@ int App::run_windowed(Platform& platform) {
     double reload_poll_timer = 0.0;
 
     uint64_t seed = cfg_.seed;
+    int pending_class = 0; // classes.json index the next run starts as
     float cam_yaw = 0.0f;
     float cam_pitch = 0.0f;
     uint64_t telem_cursor = 0;
@@ -486,6 +494,7 @@ int App::run_windowed(Platform& platform) {
     auto regenerate = [&](uint64_t new_seed) {
         write_telemetry(world.player_dead ? "death" : "restart");
         seed = new_seed;
+        world.selected_class = pending_class;
         GenParams params;
         params.seed = seed;
         world.init_from_dungeon(generate_dungeon(params), seed);
@@ -561,6 +570,18 @@ int App::run_windowed(Platform& platform) {
     // dungeon backdrop; the sim only ticks while Playing.
     GamePhase phase = GamePhase::Title;
     MenuSystem menu;
+    {
+        std::vector<RosterEntry> roster;
+        for (size_t i = 0; i < world.content.classes.size(); ++i) {
+            const ClassDef& cls = world.content.classes[i];
+            std::string label = cls.name;
+            for (char& c : label) {
+                c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+            }
+            roster.push_back({std::move(label), cls.desc, static_cast<int>(i)});
+        }
+        menu.set_class_roster(std::move(roster), pending_class);
+    }
     float applied_volume = -1.0f;
     glm::vec2 last_mouse_px{-1.0f, -1.0f};
     auto enter_playing = [&] {
@@ -698,6 +719,9 @@ int App::run_windowed(Platform& platform) {
                 break;
             case MenuAction::QuitGame:
                 running = false;
+                break;
+            case MenuAction::SelectClass:
+                pending_class = menu.chosen_payload(); // takes effect next run
                 break;
             case MenuAction::None:
                 break;

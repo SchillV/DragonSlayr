@@ -1,0 +1,23 @@
+{
+  "knight": {
+    "name": "Knight",
+    "desc": "Steel and stubbornness. Starts guarded when struck.",
+    "str": 2,
+    "vit": 3,
+    "feats": ["last_stand"]
+  },
+  "ranger": {
+    "name": "Ranger",
+    "desc": "Fast hands, faster feet. Kills quicken the step.",
+    "dex": 4,
+    "vit": 1,
+    "feats": ["keen_eye", "bloodlust"]
+  },
+  "mage": {
+    "name": "Mage",
+    "desc": "The bolt is the answer to most questions.",
+    "mag": 4,
+    "dex": 1,
+    "feats": ["arcane_soul"]
+  }
+}

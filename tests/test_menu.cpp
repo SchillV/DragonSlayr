@@ -48,7 +48,9 @@ TEST_CASE("title screen starts on the first enabled item and can start a run") {
 TEST_CASE("navigation skips disabled placeholders and wraps around") {
     MenuSystem m;
     m.open(MenuScreen::Title);
-    // NEW GAME -> (skip CONTINUE/CLASS/LEADERBOARD placeholders) -> OPTIONS.
+    // NEW GAME -> (skip CONTINUE placeholder) -> CLASS & FEATS -> OPTIONS.
+    m.update(nav(false, true), kVp);
+    CHECK(m.items()[m.selection()].label == "CLASS & FEATS");
     m.update(nav(false, true), kVp);
     CHECK(m.items()[m.selection()].label == "OPTIONS");
     // Down again -> ABANDON (last), down again wraps to NEW GAME.
@@ -59,6 +61,43 @@ TEST_CASE("navigation skips disabled placeholders and wraps around") {
     // Up from the top wraps to the last enabled item.
     m.update(nav(true), kVp);
     CHECK(m.items()[m.selection()].label == "ABANDON");
+}
+
+TEST_CASE("class select lists the injected roster and reports the choice") {
+    MenuSystem m;
+    m.set_class_roster({{"KNIGHT", "Steel.", 0}, {"MAGE", "Sparks.", 2}}, /*current=*/0);
+    m.open(MenuScreen::ClassSelect);
+
+    REQUIRE(m.items().size() == 3); // two classes + BACK
+    CHECK(m.items()[0].label == "KNIGHT  · CHOSEN");
+    CHECK(m.items()[1].label == "MAGE");
+    CHECK(m.items()[0].blurb == "Steel.");
+
+    // Pick MAGE: action fires with its payload and the marker moves.
+    m.update(nav(false, true), kVp);
+    CHECK(m.update(nav(false, false, true), kVp) == MenuAction::SelectClass);
+    CHECK(m.chosen_payload() == 2);
+    CHECK(m.items()[1].label == "MAGE  · CHOSEN");
+
+    // BACK pops (Title -> ClassSelect stack not present here; opened as root,
+    // so back keeps the screen but BACK still pops when stacked).
+    m.set_class_roster({}, 0);
+    m.open(MenuScreen::ClassSelect);
+    CHECK(m.items()[0].label == "NO CLASSES DEFINED");
+    CHECK_FALSE(m.items()[0].enabled);
+}
+
+TEST_CASE("title reaches class select as a submenu") {
+    MenuSystem m;
+    m.set_class_roster({{"KNIGHT", "", 0}}, 0);
+    m.open(MenuScreen::Title);
+    while (m.items()[m.selection()].label != "CLASS & FEATS") {
+        m.update(nav(false, true), kVp);
+    }
+    m.update(nav(false, false, true), kVp);
+    CHECK(m.current() == MenuScreen::ClassSelect);
+    m.update(nav(false, false, false, true), kVp); // Esc pops back
+    CHECK(m.current() == MenuScreen::Title);
 }
 
 TEST_CASE("submenu push and back pop") {

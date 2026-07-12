@@ -64,6 +64,7 @@ struct Modifier {
 // directly; everything else gets a reserved range far above any plausible
 // roster size so the spaces can never collide and code can strip a whole
 // class of modifiers by range (e.g. temp buffs expiring at the stairs).
+constexpr uint16_t kClassSource = 0xd000;    // the run's class attribute package
 constexpr uint16_t kFeatSourceBase = 0xe000; // + feat def index
 constexpr uint16_t kTempSourceBase = 0xf000; // timed buffs (unique token each)
 constexpr uint16_t kTempSourceSpan = 0x0e00; // wraps before the 0xfffe/0xffff sentinels

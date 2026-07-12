@@ -17,9 +17,17 @@ struct FontAtlas;
 // state machine is unit-testable and the screens render through the same
 // overlay pipeline as the HUD.
 
-enum class MenuScreen : uint8_t { Title, Pause, Settings, Death };
+enum class MenuScreen : uint8_t { Title, Pause, Settings, Death, ClassSelect };
 
-enum class MenuAction : uint8_t { None, StartRun, Resume, Restart, QuitToTitle, QuitGame };
+enum class MenuAction : uint8_t {
+    None,
+    StartRun,
+    Resume,
+    Restart,
+    QuitToTitle,
+    QuitGame,
+    SelectClass, // read the choice with chosen_payload()
+};
 
 // Edge-triggered navigation input for one frame.
 struct MenuInput {
@@ -38,17 +46,27 @@ struct MenuItem {
     enum class Kind : uint8_t { Button, Slider };
 
     std::string label;
+    std::string blurb; // dim descriptive line shown while this item is selected
     Kind kind = Kind::Button;
     bool enabled = true;
     bool destructive = false; // red styling (ABANDON et al.)
     MenuAction action = MenuAction::None;
     int push_screen = -1; // >= 0: pushes MenuScreen(push_screen) instead of acting
+    int payload = -1;     // SelectClass: the roster payload
     // Slider: bound console variable (skipped if the cvar doesn't exist).
     std::string cvar;
     float min = 0.0f;
     float max = 1.0f;
     float step = 0.05f;
     bool integer = false; // display without decimals
+};
+
+// One choice on the class-select screen, injected by the app from ContentDB
+// (the menu itself stays content-blind).
+struct RosterEntry {
+    std::string label;
+    std::string blurb;
+    int payload = 0;
 };
 
 class MenuSystem {
@@ -62,6 +80,13 @@ public:
 
     // Extra line under the header (e.g. the death screen's final score).
     void set_status_line(std::string line) { status_line_ = std::move(line); }
+
+    // Class-select roster + which payload is currently active.
+    void set_class_roster(std::vector<RosterEntry> roster, int current_payload) {
+        class_roster_ = std::move(roster);
+        roster_current_ = current_payload;
+    }
+    int chosen_payload() const { return chosen_payload_; }
 
     // Rebuilds the current screen's items, applies navigation/mouse input,
     // adjusts bound cvars, and returns the action the app should execute.
@@ -88,6 +113,9 @@ private:
     size_t selection_ = 0;
     glm::vec2 viewport_{1280.0f, 720.0f};
     std::string status_line_;
+    std::vector<RosterEntry> class_roster_;
+    int roster_current_ = 0;
+    int chosen_payload_ = -1;
 };
 
 } // namespace ds

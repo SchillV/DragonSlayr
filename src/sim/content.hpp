@@ -111,6 +111,23 @@ struct FeatDef {
     std::vector<ItemHookDef> hooks;
 };
 
+// A playable class: starting attributes, starting feats, weapon loadout.
+// Applied once at run start (attributes as kClassSource modifiers, feats via
+// grant_feat) — after that the run belongs to items/trees, so classes stay
+// cheap: a class IS its starting numbers plus its feat collection.
+struct ClassDef {
+    std::string id;
+    std::string name;
+    std::string desc;
+    int str = 0;
+    int dex = 0;
+    int vit = 0;
+    int mag = 0;
+    std::vector<std::string> feats; // feat ids granted at run start
+    std::string primary = "sword";
+    std::string secondary = "bolt";
+};
+
 // Linear id lookup shared by every content category (rosters are small; a
 // hash map would be overkill and would hurt hot-reload index stability).
 template <typename Def>
@@ -130,11 +147,13 @@ struct ContentDB {
     std::vector<WeaponDef> weapons;
     std::vector<ItemDef> items;
     std::vector<FeatDef> feats;
+    std::vector<ClassDef> classes;
 
     int find_enemy(std::string_view id) const;
     int find_weapon(std::string_view id) const;
     int find_item(std::string_view id) const;
     int find_feat(std::string_view id) const;
+    int find_class(std::string_view id) const;
 
     // On failure: returns false, fills `error` (with the offending JSON key
     // path) and leaves the db unchanged.
@@ -146,6 +165,8 @@ struct ContentDB {
     bool load_items(const std::filesystem::path& path, std::string* error = nullptr);
     bool load_feats_from_string(std::string_view json_text, std::string* error = nullptr);
     bool load_feats(const std::filesystem::path& path, std::string* error = nullptr);
+    bool load_classes_from_string(std::string_view json_text, std::string* error = nullptr);
+    bool load_classes(const std::filesystem::path& path, std::string* error = nullptr);
 };
 
 } // namespace ds

@@ -28,8 +28,9 @@ struct World {
     bool player_dead = false;
     int score = 0;
     int current_floor = 1;     // drives spawn-table eligibility (advances in the floors milestone)
-    int primary_weapon = -1;   // "sword" — gear replaces this later
-    int secondary_weapon = -1; // "bolt"
+    int selected_class = 0;    // ContentDB::classes index; set before init_from_dungeon
+    int primary_weapon = -1;   // from the class loadout (default "sword")
+    int secondary_weapon = -1; // from the class loadout (default "bolt")
     int hook_depth = 0;        // item-hook re-entrancy guard (see items.cpp)
     // Set by tick() when the player steps onto the stairs (dungeon.exit_pos);
     // whoever owns the run (app / headless loop) generates the next floor and

@@ -32,6 +32,7 @@ const char* screen_title(MenuScreen s) {
     case MenuScreen::Pause: return "PAUSED";
     case MenuScreen::Settings: return "OPTIONS";
     case MenuScreen::Death: return "YOU DIED";
+    case MenuScreen::ClassSelect: return "CLASS & FEATS";
     }
     return "";
 }
@@ -123,10 +124,25 @@ void MenuSystem::rebuild_items() {
         // honest placeholders.
         items_.push_back(button("NEW GAME", MenuAction::StartRun));
         items_.push_back(placeholder("CONTINUE · SOON"));
-        items_.push_back(placeholder("CLASS & FEATS · SOON"));
+        items_.push_back(submenu("CLASS & FEATS", MenuScreen::ClassSelect));
         items_.push_back(placeholder("LEADERBOARD · SOON"));
         items_.push_back(submenu("OPTIONS", MenuScreen::Settings));
         items_.push_back(button("ABANDON", MenuAction::QuitGame, /*destructive=*/true));
+        break;
+    case MenuScreen::ClassSelect:
+        for (const RosterEntry& entry : class_roster_) {
+            MenuItem it;
+            it.label = entry.payload == roster_current_ ? entry.label + "  · CHOSEN"
+                                                        : entry.label;
+            it.blurb = entry.blurb;
+            it.action = MenuAction::SelectClass;
+            it.payload = entry.payload;
+            items_.push_back(std::move(it));
+        }
+        if (items_.empty()) {
+            items_.push_back(placeholder("NO CLASSES DEFINED"));
+        }
+        items_.push_back(button("BACK", MenuAction::None)); // pops via activate()
         break;
     case MenuScreen::Pause:
         items_.push_back(button("RESUME", MenuAction::Resume));
@@ -202,12 +218,20 @@ MenuAction MenuSystem::activate(size_t index) {
         select_first_enabled();
         return MenuAction::None;
     }
-    if (current() == MenuScreen::Settings && it.action == MenuAction::None) {
+    if ((current() == MenuScreen::Settings || current() == MenuScreen::ClassSelect) &&
+        it.action == MenuAction::None) {
         // BACK
         stack_.pop_back();
         rebuild_items();
         select_first_enabled();
         return MenuAction::None;
+    }
+    if (it.action == MenuAction::SelectClass) {
+        chosen_payload_ = it.payload;
+        roster_current_ = it.payload;
+        const MenuAction action = it.action;
+        rebuild_items(); // the CHOSEN marker moves immediately (invalidates `it`)
+        return action;
     }
     return it.action;
 }
@@ -385,6 +409,15 @@ void MenuSystem::render(FrameView& view, const FontAtlas& font) const {
                   {measure_text(font, it.label, scale, 2.0f).x, 1.5f * scale},
                   {kGold.r, kGold.g, kGold.b, 0.8f});
         }
+    }
+
+    // Selected item's blurb (class descriptions et al.) under the list.
+    if (selection_ < items_.size() && !items_[selection_].blurb.empty()) {
+        const glm::vec2 pos{l.list_origin.x,
+                            l.list_origin.y + static_cast<float>(items_.size()) * l.item_h +
+                                10.0f * scale};
+        emit_text(view.overlay_text, font, items_[selection_].blurb, pos, scale,
+                  {kDim.r * 1.15f, kDim.g * 1.15f, kDim.b * 1.15f, 0.95f}, 1.0f);
     }
 
     // Footer.

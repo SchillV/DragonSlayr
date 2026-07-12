@@ -136,11 +136,27 @@ thanks to the generic loader in `src/sim/content.cpp`:
 Player numbers flow through a `StatBlock` (`src/sim/stats.hpp`) on the player entity:
 `base` stats + a list of `Modifier{stat, add|mult, value, source}` → a recomputed `cached` set.
 Adds apply before mults per stat, so stacking order never matters; safety clamps keep defense
-below 90% and cooldowns/HP above zero. The curated stat set today: `max_hp`,
-`move_speed_mult`, `damage_mult`, `defense_pct`, `fire_rate_mult` — extending it is one enum
-value + one name-table entry + one consumer. Items (and later classes) grant/remove modifiers by
+below 90% and cooldowns/HP above zero. Items, feats and classes grant/remove modifiers by
 `source` and call `World::refresh_player_stats()`, which syncs Health (gaining max HP heals by
 the gained amount; losing it clamps).
+
+The block holds **two layers** that content can mix freely:
+
+- **Effect stats** (what the sim consumes): `max_hp`, `move_speed_mult`, `damage_mult` (all
+  damage), `melee_damage_mult`, `magic_damage_mult`, `defense_pct`, `fire_rate_mult`.
+- **Attributes** (the classic sheet, 0 = baseline): `str`, `dex`, `vit`, `mag`. Each derives
+  effect stats inside `recompute()` — deliberately few, each one a lever the player can feel:
+
+  | attribute | per point |
+  |---|---|
+  | `str` | +5% melee damage |
+  | `dex` | +3% attack speed, +2% move speed |
+  | `vit` | +8 max HP, +1% defense |
+  | `mag` | +5% magic damage |
+
+  Derivations apply after all modifiers and before clamps, so `"+2 vit"` and `"+10% melee"`
+  items compose predictably. Extending the stat set is one enum value + one name-table entry +
+  one field (+ a derivation line if it's an attribute).
 
 ## Adding an item — `assets/data/items.json`
 

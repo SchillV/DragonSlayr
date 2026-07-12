@@ -201,6 +201,32 @@ TEST_CASE("damage_mult scales outgoing damage") {
     CHECK_FALSE(world.reg.valid(target)); // 7 * 2 = 14 >= 12 hp: one-shot
 }
 
+TEST_CASE("str scales sword damage, mag scales bolts") {
+    World world = make_world();
+    // 20 STR doubles melee: 7 * 2 = 14 >= 12 hp, a one-shot. MAG untouched.
+    world.reg.get<StatBlock>(world.player).add({StatId::Str, Modifier::Op::Add, 20.0f, 1});
+    const auto& player_tr = world.reg.get<Transform>(world.player);
+    const entt::entity target = spawn_walker(world, player_tr.pos + glm::vec2{1.0f, 0.0f});
+
+    PlayerCmd cmd;
+    cmd.yaw = 0.0f;
+    cmd.attack_primary = true;
+    world.tick(cmd, 1.0f / 60.0f);
+    CHECK_FALSE(world.reg.valid(target));
+
+    // Bolt damage rides MagicDamageMult: with +100% mag, 5 * 2 = 10 -> 2 hp.
+    world.reg.get<StatBlock>(world.player).add({StatId::Mag, Modifier::Op::Add, 20.0f, 2});
+    const entt::entity far_target = spawn_walker(world, player_tr.pos + glm::vec2{3.0f, 0.0f});
+    cmd.attack_primary = false;
+    cmd.attack_secondary = true;
+    world.tick(cmd, 1.0f / 60.0f);
+    cmd.attack_secondary = false;
+    for (int i = 0; i < 60 && world.reg.valid(far_target); ++i) {
+        world.tick(cmd, 1.0f / 60.0f);
+    }
+    CHECK(world.reg.get<Health>(far_target).hp == doctest::Approx(2.0f));
+}
+
 TEST_CASE("defense_pct reduces incoming damage") {
     World world = make_world();
     world.reg.get<StatBlock>(world.player).add({StatId::DefensePct, Modifier::Op::Add, 0.5f, 1});

@@ -85,6 +85,39 @@ TEST_CASE("remove_source strips exactly that source's modifiers") {
     CHECK(sb.mods.empty());
 }
 
+TEST_CASE("attributes derive their effect stats") {
+    StatBlock sb;
+    sb.add({StatId::Str, Modifier::Op::Add, 4.0f, 1});
+    CHECK(sb.cached.melee_damage_mult == Approx(1.2f));
+    CHECK(sb.cached.magic_damage_mult == Approx(1.0f)); // STR leaves magic alone
+
+    sb.add({StatId::Mag, Modifier::Op::Add, 2.0f, 2});
+    CHECK(sb.cached.magic_damage_mult == Approx(1.1f));
+
+    sb.add({StatId::Dex, Modifier::Op::Add, 5.0f, 3});
+    CHECK(sb.cached.fire_rate_mult == Approx(1.15f));
+    CHECK(sb.cached.move_speed_mult == Approx(1.1f));
+
+    sb.add({StatId::Vit, Modifier::Op::Add, 3.0f, 4});
+    CHECK(sb.cached.max_hp == Approx(124.0f));
+    CHECK(sb.cached.defense_pct == Approx(0.03f));
+}
+
+TEST_CASE("attribute and effect modifiers compose predictably") {
+    // A "+10% melee" item and a "+2 str" item both help the sword: modifier
+    // pass first, then the attribute bridge multiplies on top.
+    StatBlock sb;
+    sb.add({StatId::MeleeDamageMult, Modifier::Op::Mult, 1.1f, 1});
+    sb.add({StatId::Str, Modifier::Op::Add, 2.0f, 2});
+    CHECK(sb.cached.melee_damage_mult == Approx(1.1f * 1.1f));
+}
+
+TEST_CASE("negative attributes floor out instead of flipping damage") {
+    StatBlock sb;
+    sb.add({StatId::Str, Modifier::Op::Add, -100.0f, 1});
+    CHECK(sb.cached.melee_damage_mult == Approx(0.1f)); // floored, never negative
+}
+
 TEST_CASE("stat names round-trip") {
     for (size_t i = 0; i < static_cast<size_t>(StatId::Count); ++i) {
         const auto id = static_cast<StatId>(i);

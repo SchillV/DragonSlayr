@@ -8,6 +8,16 @@
       { "stat": "damage_mult", "op": "mult", "value": 1.15 }
     ]
   },
+  "giants_band": {
+    "name": "Giant's Band",
+    "sprite": "giants_band",
+    "spawn_weight": 0.7,
+    "min_floor": 1,
+    "modifiers": [
+      { "stat": "str", "op": "add", "value": 2 },
+      { "stat": "vit", "op": "add", "value": 1 }
+    ]
+  },
   "iron_ward": {
     "name": "Iron Ward",
     "sprite": "iron_ward",

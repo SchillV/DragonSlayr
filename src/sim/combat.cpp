@@ -93,7 +93,7 @@ void player_combat(World& world, const PlayerCmd& cmd, float dt) {
         const WeaponDef& w = world.content.weapons[static_cast<size_t>(world.primary_weapon)];
         pl.primary_cooldown = w.cooldown_s / stats.fire_rate_mult;
         pl.swing_anim = 1.0f;
-        const float damage = w.damage * stats.damage_mult;
+        const float damage = w.damage * stats.damage_mult * stats.melee_damage_mult;
 
         bool any_hit = false;
         uint16_t hit_def = 0xffff;
@@ -132,7 +132,8 @@ void player_combat(World& world, const PlayerCmd& cmd, float dt) {
         const glm::vec2 dir{std::cos(cmd.yaw), std::sin(cmd.yaw)};
         spawn_projectile(world, Team::Player, static_cast<uint16_t>(world.secondary_weapon),
                          /*src_def=*/0xffff, tr.pos + dir * 0.4f, dir, w.speed,
-                         w.damage * stats.damage_mult, w.radius, w.ttl_s);
+                         w.damage * stats.damage_mult * stats.magic_damage_mult, w.radius,
+                         w.ttl_s);
 
         TelemetryEvent ev;
         ev.tick = static_cast<uint32_t>(world.tick_count);

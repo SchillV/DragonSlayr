@@ -9,12 +9,25 @@ namespace ds {
 // The curated stat set (hybrid philosophy: stat NAMES are C++, values and
 // combinations are data). Extending it is one enum value + one name-table
 // entry + one field; every consumer reads through StatBlock::cached.
+//
+// Two layers share the block: effect stats (what the sim consumes) and the
+// classic attribute sheet (what the player reasons about). Attributes derive
+// effect stats inside recompute() — see the derivation table there — so
+// items/feats/classes can speak either language ("+2 vit" or "+10% melee").
 enum class StatId : uint8_t {
-    MaxHp,          // absolute hit points
-    MoveSpeedMult,  // multiplies player move/dash speed
-    DamageMult,     // multiplies damage the player deals
-    DefensePct,     // fraction of incoming damage prevented (capped at 0.9)
-    FireRateMult,   // divides weapon cooldowns
+    // effect stats
+    MaxHp,           // absolute hit points
+    MoveSpeedMult,   // multiplies player move/dash speed
+    DamageMult,      // multiplies ALL damage the player deals
+    DefensePct,      // fraction of incoming damage prevented (capped at 0.9)
+    FireRateMult,    // divides weapon cooldowns
+    MeleeDamageMult, // multiplies melee (sword) damage only
+    MagicDamageMult, // multiplies magic (bolt/spell) damage only
+    // attributes (0 = baseline human; negative is allowed)
+    Str, // melee power
+    Dex, // attack + move speed
+    Vit, // toughness
+    Mag, // magic power
     Count,
 };
 
@@ -27,6 +40,12 @@ struct Stats {
     float damage_mult = 1.0f;
     float defense_pct = 0.0f;
     float fire_rate_mult = 1.0f;
+    float melee_damage_mult = 1.0f;
+    float magic_damage_mult = 1.0f;
+    float str = 0.0f;
+    float dex = 0.0f;
+    float vit = 0.0f;
+    float mag = 0.0f;
 
     float& operator[](StatId id);
     float operator[](StatId id) const;

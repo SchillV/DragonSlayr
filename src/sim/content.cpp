@@ -375,6 +375,15 @@ void parse_class(JsonReader& r, ClassDef& out) {
     r.opt_s("tree", out.tree);
 }
 
+void parse_upgrade(JsonReader& r, UpgradeDef& out) {
+    r.opt_s("name", out.name);
+    r.opt_s("desc", out.desc);
+    r.opt_i("max_ranks", out.max_ranks);
+    r.opt_i("cost", out.cost);
+    r.opt_i("cost_per_rank", out.cost_per_rank);
+    parse_modifier_list(r, out.modifiers);
+}
+
 void parse_skill_tree(JsonReader& r, SkillTreeDef& out) {
     r.opt_s("name", out.name);
     r.obj_items("nodes", [&out](const std::string& id, JsonReader& n) {
@@ -444,6 +453,10 @@ int ContentDB::find_class(std::string_view id) const {
 
 int ContentDB::find_skill_tree(std::string_view id) const {
     return find_by_id(skill_trees, id);
+}
+
+int ContentDB::find_upgrade(std::string_view id) const {
+    return find_by_id(upgrades, id);
 }
 
 bool ContentDB::load_enemies_from_string(std::string_view json_text, std::string* error) {
@@ -558,6 +571,15 @@ bool ContentDB::load_skill_trees_from_string(std::string_view json_text, std::st
 bool ContentDB::load_skill_trees(const std::filesystem::path& path, std::string* error) {
     std::string text;
     return load_category_file(path, text, error) && load_skill_trees_from_string(text, error);
+}
+
+bool ContentDB::load_upgrades_from_string(std::string_view json_text, std::string* error) {
+    return load_category(json_text, "upgrades", upgrades, parse_upgrade, error);
+}
+
+bool ContentDB::load_upgrades(const std::filesystem::path& path, std::string* error) {
+    std::string text;
+    return load_category_file(path, text, error) && load_upgrades_from_string(text, error);
 }
 
 } // namespace ds

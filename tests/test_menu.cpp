@@ -37,30 +37,105 @@ size_t index_of(const MenuSystem& m, std::string_view label) {
 
 } // namespace
 
-TEST_CASE("title screen starts on the first enabled item and can start a run") {
+TEST_CASE("title: quick resume gates on a suspended run, new game opens slots") {
     MenuSystem m;
     m.open(MenuScreen::Title);
     REQUIRE(m.active());
+    // No suspended run and no saves: first enabled item is NEW GAME.
     CHECK(m.items()[m.selection()].label == "NEW GAME");
-    CHECK(m.update(nav(false, false, /*sel=*/true), kVp) == MenuAction::StartRun);
+    CHECK_FALSE(m.items()[0].enabled); // QUICK RESUME
+    CHECK(m.update(nav(false, false, /*sel=*/true), kVp) == MenuAction::None);
+    CHECK(m.current() == MenuScreen::SlotNew);
+
+    MenuSystem with_run;
+    with_run.set_resume_available(true);
+    with_run.open(MenuScreen::Title);
+    CHECK(with_run.items()[with_run.selection()].label == "QUICK RESUME");
+    CHECK(with_run.update(nav(false, false, true), kVp) == MenuAction::Resume);
 }
 
-TEST_CASE("navigation skips disabled placeholders and wraps around") {
+TEST_CASE("navigation skips disabled items and wraps around") {
     MenuSystem m;
-    m.open(MenuScreen::Title);
-    // NEW GAME -> (skip CONTINUE placeholder) -> CLASS & FEATS -> OPTIONS.
-    m.update(nav(false, true), kVp);
-    CHECK(m.items()[m.selection()].label == "CLASS & FEATS");
+    m.open(MenuScreen::Title); // QUICK RESUME + LOAD GAME disabled (no saves)
+    CHECK(m.items()[m.selection()].label == "NEW GAME");
     m.update(nav(false, true), kVp);
     CHECK(m.items()[m.selection()].label == "OPTIONS");
-    // Down again -> ABANDON (last), down again wraps to NEW GAME.
     m.update(nav(false, true), kVp);
-    CHECK(m.items()[m.selection()].label == "ABANDON");
-    m.update(nav(false, true), kVp);
+    CHECK(m.items()[m.selection()].label == "QUIT TO DESKTOP");
+    m.update(nav(false, true), kVp); // wraps
     CHECK(m.items()[m.selection()].label == "NEW GAME");
-    // Up from the top wraps to the last enabled item.
-    m.update(nav(true), kVp);
-    CHECK(m.items()[m.selection()].label == "ABANDON");
+    m.update(nav(true), kVp); // up from the top wraps to the last enabled
+    CHECK(m.items()[m.selection()].label == "QUIT TO DESKTOP");
+}
+
+TEST_CASE("save slots: load gates on occupancy, new arms before overwriting") {
+    MenuSystem m;
+    m.set_roster(MenuScreen::SlotNew, {{"SLOT 1 · KNIGHT", "", 1, true},
+                                       {"SLOT 2 · EMPTY", "", 2, false}});
+    m.set_roster(MenuScreen::SlotLoad, {{"SLOT 1 · KNIGHT", "", 1, true},
+                                        {"SLOT 2 · EMPTY", "", 2, false}});
+
+    // LOAD GAME enables once any slot is occupied; empty rows stay disabled.
+    m.open(MenuScreen::Title);
+    while (m.items()[m.selection()].label != "LOAD GAME") {
+        m.update(nav(false, true), kVp);
+    }
+    m.update(nav(false, false, true), kVp);
+    REQUIRE(m.current() == MenuScreen::SlotLoad);
+    CHECK(m.items()[0].enabled);
+    CHECK_FALSE(m.items()[1].enabled);
+    CHECK(m.update(nav(false, false, true), kVp) == MenuAction::LoadSlot);
+    CHECK(m.chosen_payload() == 1);
+
+    // NEW GAME on an empty slot fires immediately; an occupied slot arms
+    // first and confirms on the second press.
+    m.open(MenuScreen::SlotNew);
+    m.update(nav(false, true), kVp); // onto SLOT 2 (empty)
+    CHECK(m.update(nav(false, false, true), kVp) == MenuAction::NewGameSlot);
+    CHECK(m.chosen_payload() == 2);
+
+    m.open(MenuScreen::SlotNew); // back on SLOT 1 (occupied)
+    CHECK(m.update(nav(false, false, true), kVp) == MenuAction::None);
+    CHECK(m.items()[0].label == "OVERWRITE THIS FATE? (CONFIRM)");
+    CHECK(m.update(nav(false, false, true), kVp) == MenuAction::NewGameSlot);
+    CHECK(m.chosen_payload() == 1);
+
+    // Arming resets when the selection moves away.
+    m.open(MenuScreen::SlotNew);
+    m.update(nav(false, false, true), kVp); // arm slot 1
+    m.update(nav(false, true), kVp);        // move off
+    CHECK(m.items()[0].label == "SLOT 1 · KNIGHT");
+}
+
+TEST_CASE("hub lists the camp stations and resume descent when suspended") {
+    MenuSystem m;
+    m.open(MenuScreen::Hub);
+    CHECK(m.items()[m.selection()].label == "DESCEND");
+
+    m.set_resume_available(true);
+    m.open(MenuScreen::Hub);
+    CHECK(m.items()[m.selection()].label == "RESUME DESCENT");
+    CHECK(m.update(nav(false, false, true), kVp) == MenuAction::Resume);
+
+    // TRAIN reaches class select and pops back.
+    m.set_class_roster({{"KNIGHT", "", 0}}, 0);
+    while (m.items()[m.selection()].label != "TRAIN") {
+        m.update(nav(false, true), kVp);
+    }
+    m.update(nav(false, false, true), kVp);
+    CHECK(m.current() == MenuScreen::ClassSelect);
+    m.update(nav(false, false, false, true), kVp);
+    CHECK(m.current() == MenuScreen::Hub);
+}
+
+TEST_CASE("sanctum reports the chosen upgrade") {
+    MenuSystem m;
+    m.set_roster(MenuScreen::Sanctum,
+                 {{"TOUGH HIDE · RANK 0/5 · COST 100", "+10 hp", 0, true},
+                  {"KEEN EDGE · RANK 5/5 · MAX", "+5% melee", 1, false}});
+    m.open(MenuScreen::Sanctum);
+    CHECK(m.update(nav(false, false, true), kVp) == MenuAction::BuyUpgrade);
+    CHECK(m.chosen_payload() == 0);
 }
 
 TEST_CASE("class select lists the injected roster and reports the choice") {
@@ -85,19 +160,6 @@ TEST_CASE("class select lists the injected roster and reports the choice") {
     m.open(MenuScreen::ClassSelect);
     CHECK(m.items()[0].label == "NO CLASSES DEFINED");
     CHECK_FALSE(m.items()[0].enabled);
-}
-
-TEST_CASE("title reaches class select as a submenu") {
-    MenuSystem m;
-    m.set_class_roster({{"KNIGHT", "", 0}}, 0);
-    m.open(MenuScreen::Title);
-    while (m.items()[m.selection()].label != "CLASS & FEATS") {
-        m.update(nav(false, true), kVp);
-    }
-    m.update(nav(false, false, true), kVp);
-    CHECK(m.current() == MenuScreen::ClassSelect);
-    m.update(nav(false, false, false, true), kVp); // Esc pops back
-    CHECK(m.current() == MenuScreen::Title);
 }
 
 TEST_CASE("submenu push and back pop") {
@@ -160,7 +222,7 @@ TEST_CASE("settings sliders adjust and clamp their cvars") {
 TEST_CASE("mouse hover selects and click activates") {
     MenuSystem m;
     m.open(MenuScreen::Death);
-    const size_t retry = index_of(m, "RETURN TO TITLE");
+    const size_t retry = index_of(m, "RETURN TO CAMP");
     REQUIRE(retry != SIZE_MAX);
     const glm::vec4 r = m.item_rect(retry);
 

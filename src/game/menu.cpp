@@ -33,12 +33,22 @@ const char* screen_title(MenuScreen s) {
     case MenuScreen::Settings: return "OPTIONS";
     case MenuScreen::Death: return "YOU DIED";
     case MenuScreen::ClassSelect: return "CLASS & FEATS";
+    case MenuScreen::Hub: return "THE CAMP";
+    case MenuScreen::SlotNew: return "NEW GAME";
+    case MenuScreen::SlotLoad: return "LOAD GAME";
+    case MenuScreen::Sanctum: return "SANCTUM";
     }
     return "";
 }
 
-// Title uses the design's left-column layout; the in-game screens are
-// centered panels over the dimmed world.
+// Roster screens pop with BACK; used by activate() and build_items().
+bool is_roster_screen(MenuScreen s) {
+    return s == MenuScreen::ClassSelect || s == MenuScreen::SlotNew ||
+           s == MenuScreen::SlotLoad || s == MenuScreen::Sanctum;
+}
+
+// Title and the hub use the design's left-column layout; the in-game screens
+// are centered panels over the dimmed world.
 struct Layout {
     glm::vec2 list_origin{0.0f};
     float item_h = 0.0f;
@@ -51,9 +61,16 @@ Layout layout_for(MenuScreen s, size_t item_count, glm::vec2 vp) {
     Layout l;
     l.item_h = 22.0f * scale;
     l.item_w = 240.0f * scale;
-    if (s == MenuScreen::Title) {
+    if (s == MenuScreen::Title || s == MenuScreen::Hub) {
         l.header_pos = {vp.x * 0.14f, vp.y * 0.22f};
-        l.list_origin = {vp.x * 0.14f, vp.y * 0.46f};
+        l.list_origin = {vp.x * 0.14f, vp.y * 0.42f};
+        l.item_w = 340.0f * scale;
+    } else if (s == MenuScreen::SlotNew || s == MenuScreen::SlotLoad ||
+               s == MenuScreen::Sanctum) {
+        const float list_h = static_cast<float>(item_count) * l.item_h;
+        l.item_w = 380.0f * scale; // roster lines carry summaries
+        l.list_origin = {(vp.x - l.item_w) * 0.5f, (vp.y - list_h) * 0.55f};
+        l.header_pos = {l.list_origin.x, l.list_origin.y - 58.0f * scale};
     } else {
         const float list_h = static_cast<float>(item_count) * l.item_h;
         l.list_origin = {(vp.x - l.item_w) * 0.5f, (vp.y - list_h) * 0.55f};
@@ -102,8 +119,32 @@ MenuItem slider(std::string label, std::string cvar, float min, float max, float
 void MenuSystem::open(MenuScreen root) {
     stack_ = {root};
     status_line_.clear();
+    armed_slot_ = -1;
     rebuild_items();
     select_first_enabled();
+}
+
+void MenuSystem::set_roster(MenuScreen screen, std::vector<RosterEntry> roster) {
+    for (auto& [s, entries] : rosters_) {
+        if (s == screen) {
+            entries = std::move(roster);
+            if (active()) {
+                rebuild_items(); // live screens (Sanctum after a buy) refresh
+            }
+            return;
+        }
+    }
+    rosters_.emplace_back(screen, std::move(roster));
+}
+
+const std::vector<RosterEntry>& MenuSystem::roster_for(MenuScreen screen) const {
+    static const std::vector<RosterEntry> kEmpty;
+    for (const auto& [s, entries] : rosters_) {
+        if (s == screen) {
+            return entries;
+        }
+    }
+    return kEmpty;
 }
 
 void MenuSystem::close() {
@@ -118,19 +159,36 @@ void MenuSystem::rebuild_items() {
         return;
     }
     switch (current()) {
-    case MenuScreen::Title:
-        // Page structure from the design: NEW GAME / CONTINUE / CLASS & FEATS /
-        // LEADERBOARD / OPTIONS / ABANDON. Systems that don't exist yet are
-        // honest placeholders.
-        items_.push_back(button("NEW GAME", MenuAction::StartRun));
-        items_.push_back(placeholder("CONTINUE · SOON"));
-        items_.push_back(submenu("CLASS & FEATS", MenuScreen::ClassSelect));
-        items_.push_back(placeholder("LEADERBOARD · SOON"));
+    case MenuScreen::Title: {
+        // The boot menu: resume (when a run is suspended), profiles, options.
+        MenuItem resume = button("QUICK RESUME", MenuAction::Resume);
+        resume.enabled = resume_available_;
+        items_.push_back(std::move(resume));
+        items_.push_back(submenu("NEW GAME", MenuScreen::SlotNew));
+        MenuItem load = submenu("LOAD GAME", MenuScreen::SlotLoad);
+        load.enabled = false;
+        for (const RosterEntry& entry : roster_for(MenuScreen::SlotLoad)) {
+            load.enabled |= entry.tag; // any occupied slot
+        }
+        items_.push_back(std::move(load));
         items_.push_back(submenu("OPTIONS", MenuScreen::Settings));
-        items_.push_back(button("ABANDON", MenuAction::QuitGame, /*destructive=*/true));
+        items_.push_back(button("QUIT TO DESKTOP", MenuAction::QuitGame, /*destructive=*/true));
+        break;
+    }
+    case MenuScreen::Hub:
+        // The camp (design's CAMP STATIONS page): home once a profile exists.
+        if (resume_available_) {
+            items_.push_back(button("RESUME DESCENT", MenuAction::Resume));
+        }
+        items_.push_back(button("DESCEND", MenuAction::StartRun));
+        items_.push_back(submenu("TRAIN", MenuScreen::ClassSelect));
+        items_.push_back(submenu("SANCTUM", MenuScreen::Sanctum));
+        items_.push_back(placeholder("RECORDS · SOON"));
+        items_.push_back(submenu("OPTIONS", MenuScreen::Settings));
+        items_.push_back(button("QUIT TO DESKTOP", MenuAction::QuitGame, /*destructive=*/true));
         break;
     case MenuScreen::ClassSelect:
-        for (const RosterEntry& entry : class_roster_) {
+        for (const RosterEntry& entry : roster_for(MenuScreen::ClassSelect)) {
             MenuItem it;
             it.label = entry.payload == roster_current_ ? entry.label + "  · CHOSEN"
                                                         : entry.label;
@@ -144,12 +202,54 @@ void MenuSystem::rebuild_items() {
         }
         items_.push_back(button("BACK", MenuAction::None)); // pops via activate()
         break;
+    case MenuScreen::SlotNew:
+        for (const RosterEntry& entry : roster_for(MenuScreen::SlotNew)) {
+            MenuItem it;
+            const bool armed = entry.tag && entry.payload == armed_slot_;
+            it.label = armed ? "OVERWRITE THIS FATE? (CONFIRM)" : entry.label;
+            it.blurb = entry.blurb;
+            it.destructive = armed;
+            it.action = MenuAction::NewGameSlot;
+            it.payload = entry.payload;
+            it.tag = entry.tag;
+            items_.push_back(std::move(it));
+        }
+        items_.push_back(button("BACK", MenuAction::None));
+        break;
+    case MenuScreen::SlotLoad:
+        for (const RosterEntry& entry : roster_for(MenuScreen::SlotLoad)) {
+            MenuItem it;
+            it.label = entry.label;
+            it.blurb = entry.blurb;
+            it.enabled = entry.tag; // only occupied slots load
+            it.action = MenuAction::LoadSlot;
+            it.payload = entry.payload;
+            items_.push_back(std::move(it));
+        }
+        items_.push_back(button("BACK", MenuAction::None));
+        break;
+    case MenuScreen::Sanctum:
+        for (const RosterEntry& entry : roster_for(MenuScreen::Sanctum)) {
+            MenuItem it;
+            it.label = entry.label;
+            it.blurb = entry.blurb;
+            it.action = MenuAction::BuyUpgrade;
+            it.payload = entry.payload;
+            it.tag = entry.tag; // still buyable (not maxed)
+            items_.push_back(std::move(it));
+        }
+        if (items_.empty()) {
+            items_.push_back(placeholder("NOTHING FOR SALE"));
+        }
+        items_.push_back(button("BACK", MenuAction::None));
+        break;
     case MenuScreen::Pause:
         items_.push_back(button("RESUME", MenuAction::Resume));
         items_.push_back(button("SKILL TREE", MenuAction::OpenTree));
         items_.push_back(button("RESTART RUN", MenuAction::Restart));
         items_.push_back(submenu("OPTIONS", MenuScreen::Settings));
-        items_.push_back(button("ABANDON RUN", MenuAction::QuitToTitle, /*destructive=*/true));
+        // Suspends the run: RESUME DESCENT at the camp picks it back up.
+        items_.push_back(button("TO CAMP", MenuAction::QuitToTitle));
         break;
     case MenuScreen::Settings: {
         const MenuItem candidates[] = {
@@ -168,7 +268,7 @@ void MenuSystem::rebuild_items() {
     }
     case MenuScreen::Death:
         items_.push_back(button("DELVE AGAIN", MenuAction::Restart));
-        items_.push_back(button("RETURN TO TITLE", MenuAction::QuitToTitle));
+        items_.push_back(button("RETURN TO CAMP", MenuAction::QuitToTitle));
         break;
     }
 }
@@ -186,6 +286,10 @@ void MenuSystem::select_first_enabled() {
 void MenuSystem::move_selection(int dir) {
     if (items_.empty()) {
         return;
+    }
+    if (armed_slot_ >= 0) {
+        armed_slot_ = -1; // moving away disarms the overwrite confirm
+        rebuild_items();
     }
     const size_t n = items_.size();
     size_t i = selection_;
@@ -214,14 +318,16 @@ MenuAction MenuSystem::activate(size_t index) {
         return MenuAction::None; // sliders adjust with left/right, not select
     }
     if (it.push_screen >= 0) {
+        armed_slot_ = -1;
         stack_.push_back(static_cast<MenuScreen>(it.push_screen));
         rebuild_items();
         select_first_enabled();
         return MenuAction::None;
     }
-    if ((current() == MenuScreen::Settings || current() == MenuScreen::ClassSelect) &&
+    if ((current() == MenuScreen::Settings || is_roster_screen(current())) &&
         it.action == MenuAction::None) {
         // BACK
+        armed_slot_ = -1;
         stack_.pop_back();
         rebuild_items();
         select_first_enabled();
@@ -233,6 +339,22 @@ MenuAction MenuSystem::activate(size_t index) {
         const MenuAction action = it.action;
         rebuild_items(); // the CHOSEN marker moves immediately (invalidates `it`)
         return action;
+    }
+    if (it.action == MenuAction::NewGameSlot) {
+        // Occupied slots arm on the first press and confirm on the second;
+        // navigating away or leaving the screen disarms.
+        if (it.tag && armed_slot_ != it.payload) {
+            armed_slot_ = it.payload;
+            rebuild_items();
+            return MenuAction::None;
+        }
+        chosen_payload_ = it.payload;
+        armed_slot_ = -1;
+        return MenuAction::NewGameSlot;
+    }
+    if (it.action == MenuAction::LoadSlot || it.action == MenuAction::BuyUpgrade) {
+        chosen_payload_ = it.payload;
+        return it.action;
     }
     return it.action;
 }
@@ -258,6 +380,7 @@ MenuAction MenuSystem::update(const MenuInput& in, glm::vec2 viewport) {
     }
 
     if (in.back) {
+        armed_slot_ = -1;
         if (stack_.size() > 1) {
             stack_.pop_back();
             rebuild_items();
@@ -321,9 +444,11 @@ void MenuSystem::render(FrameView& view, const FontAtlas& font) const {
         view.overlay.push_back(q);
     };
 
-    // Backdrop: the world stays visible but recedes.
-    solid({0.0f, 0.0f}, vp, {0.02f, 0.015f, 0.01f, screen == MenuScreen::Title ? 0.62f : 0.55f});
-    if (screen != MenuScreen::Title) {
+    // Backdrop: the world stays visible but recedes. Title and the hub use
+    // the full-page left-column layout; everything else gets a panel.
+    const bool full_page = screen == MenuScreen::Title || screen == MenuScreen::Hub;
+    solid({0.0f, 0.0f}, vp, {0.02f, 0.015f, 0.01f, full_page ? 0.62f : 0.55f});
+    if (!full_page) {
         // Centered panel with a gold border, per the design language.
         const glm::vec2 pad{26.0f * scale, 30.0f * scale};
         const glm::vec2 panel_pos{l.list_origin.x - pad.x, l.header_pos.y - pad.y};
@@ -343,6 +468,10 @@ void MenuSystem::render(FrameView& view, const FontAtlas& font) const {
     // Header block.
     if (screen == MenuScreen::Title) {
         emit_text(view.overlay_text, font, "SLAY THE WYRM · AGAIN",
+                  {l.header_pos.x, l.header_pos.y - 16.0f * scale}, scale,
+                  {kDim.r, kDim.g, kDim.b, 0.9f}, 3.0f);
+    } else if (screen == MenuScreen::Hub) {
+        emit_text(view.overlay_text, font, "REST · REARM · DESCEND",
                   {l.header_pos.x, l.header_pos.y - 16.0f * scale}, scale,
                   {kDim.r, kDim.g, kDim.b, 0.9f}, 3.0f);
     }

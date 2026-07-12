@@ -10,6 +10,7 @@
 #include "render/debug_ui.hpp"
 #include "render/dungeon_mesh.hpp"
 #include "render/font.hpp"
+#include "game/profile.hpp"
 #include "game/skill_tree_ui.hpp"
 #include "render/gpu_renderer.hpp"
 #include "render/texture_load.hpp"
@@ -52,7 +53,14 @@ CVar& fx_hitmarker = cvar_register("fx.hitmarker", 1.0f, "hitmarker flashes (0 d
 CVar& snd_volume = cvar_register("snd.volume", 0.8f, "master volume, 0-1");
 
 // Which mode the windowed session is in; the sim only ticks while Playing.
-enum class GamePhase : uint8_t { Title, Playing, Paused, Dead, Tree };
+enum class GamePhase : uint8_t { Title, Hub, Playing, Paused, Dead, Tree };
+
+std::string upper_copy(std::string s) {
+    for (char& c : s) {
+        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    }
+    return s;
+}
 
 using Clock = std::chrono::steady_clock;
 
@@ -209,6 +217,12 @@ void load_content(World& world, const std::filesystem::path& data_dir) {
     } else {
         log_info("loaded {} skill trees", world.content.skill_trees.size());
     }
+    error.clear();
+    if (!world.content.load_upgrades(data_dir / "hub_upgrades.json", &error)) {
+        log_warn("upgrade content unavailable: {}", error);
+    } else {
+        log_info("loaded {} upgrade defs", world.content.upgrades.size());
+    }
 }
 
 // First assets/fonts/*.ttf baked via stb_truetype, else the builtin 8x8 font.
@@ -290,6 +304,15 @@ bool sim_state_valid(const World& world) {
 }
 
 } // namespace
+
+std::filesystem::path profiles_dir_default() {
+    if (char* pref = SDL_GetPrefPath("schillv", "DragonSlayr")) {
+        std::filesystem::path dir = std::filesystem::path(pref) / "profiles";
+        SDL_free(pref);
+        return dir;
+    }
+    return std::filesystem::path("profiles");
+}
 
 std::filesystem::path telemetry_dir(const AppConfig& cfg) {
     if (!cfg.telemetry_dir.empty()) {
@@ -481,6 +504,13 @@ int App::run_windowed(Platform& platform) {
     bool was_dead = false;
     bool run_recorded = false; // telemetry written for the current run
 
+    // The active save slot. Runs exist only under a profile; quitting to camp
+    // suspends the run in memory (closing the app forfeits it).
+    const std::filesystem::path profiles_dir = profiles_dir_default();
+    Profile profile;
+    bool run_suspended = false;
+    bool death_recorded = false; // records/embers written for this death
+
     // Combat-feedback state: render-side only, fed by the telemetry stream.
     std::vector<DamageIndicator> fx_indicators;
     float fx_hitmarker_t = 0.0f;
@@ -503,9 +533,14 @@ int App::run_windowed(Platform& platform) {
         write_telemetry(world.player_dead ? "death" : "restart");
         seed = new_seed;
         world.selected_class = pending_class;
+        run_suspended = false;
+        death_recorded = false;
         GenParams params;
         params.seed = seed;
         world.init_from_dungeon(generate_dungeon(params), seed);
+        if (profile.loaded) {
+            apply_meta_upgrades(world, profile);
+        }
         renderer.set_dungeon_mesh(build_dungeon_mesh(world.map()));
         cam_yaw = 0.0f;
         cam_pitch = 0.0f;
@@ -612,6 +647,43 @@ int App::run_windowed(Platform& platform) {
         tree_ui.open(world, {1280.0f, 720.0f});
         SDL_SetWindowRelativeMouseMode(window, false);
     };
+    auto rebuild_slot_rosters = [&] {
+        std::vector<RosterEntry> fresh, load;
+        for (const ProfileSummary& s : list_profiles(profiles_dir)) {
+            const std::string label =
+                s.exists ? std::format("SLOT {} · {}", s.slot, s.line)
+                         : std::format("SLOT {} · EMPTY", s.slot);
+            fresh.push_back({label, s.exists ? "Overwrites this fate." : "A fresh binding.",
+                             s.slot, s.exists});
+            load.push_back({label, "", s.slot, s.exists});
+        }
+        menu.set_roster(MenuScreen::SlotNew, std::move(fresh));
+        menu.set_roster(MenuScreen::SlotLoad, std::move(load));
+    };
+    auto rebuild_sanctum = [&] {
+        std::vector<RosterEntry> roster;
+        for (size_t i = 0; i < world.content.upgrades.size(); ++i) {
+            const UpgradeDef& u = world.content.upgrades[i];
+            const auto it = profile.upgrades.find(u.id);
+            const int owned = it == profile.upgrades.end() ? 0 : it->second;
+            std::string label =
+                owned >= u.max_ranks
+                    ? std::format("{} · RANK {}/{} · MAX", upper_copy(u.name), owned, u.max_ranks)
+                    : std::format("{} · RANK {}/{} · COST {}", upper_copy(u.name), owned,
+                                  u.max_ranks, u.cost_at(owned));
+            roster.push_back({std::move(label), u.desc, static_cast<int>(i), owned < u.max_ranks});
+        }
+        menu.set_roster(MenuScreen::Sanctum, std::move(roster));
+    };
+    auto open_hub = [&] {
+        rebuild_sanctum();
+        menu.set_resume_available(run_suspended);
+        open_menu(MenuScreen::Hub, GamePhase::Hub);
+        menu.set_status_line(std::format("EMBERS {}   ·   RUNS {}   ·   BEST FLOOR {}",
+                                         profile.embers, profile.records.runs,
+                                         profile.records.best_floor));
+    };
+    rebuild_slot_rosters();
     open_menu(MenuScreen::Title, GamePhase::Title);
 
     auto prev = Clock::now();
@@ -735,18 +807,75 @@ int App::run_windowed(Platform& platform) {
                     enter_playing();
                     break;
                 case MenuAction::Resume:
+                    // Pause resume or picking a suspended run back up.
+                    run_suspended = false;
                     enter_playing();
                     break;
                 case MenuAction::QuitToTitle:
-                    regenerate(seed + 1);
-                    open_menu(MenuScreen::Title, GamePhase::Title);
+                    // Context-sensitive: from Pause this suspends the run;
+                    // from the death screen the run is already over.
+                    run_suspended = phase == GamePhase::Paused;
+                    open_hub();
                     break;
                 case MenuAction::QuitGame:
                     running = false;
                     break;
-                case MenuAction::SelectClass:
+                case MenuAction::SelectClass: {
                     pending_class = menu.chosen_payload(); // takes effect next run
+                    if (profile.loaded &&
+                        static_cast<size_t>(pending_class) < world.content.classes.size()) {
+                        profile.class_id =
+                            world.content.classes[static_cast<size_t>(pending_class)].id;
+                        save_profile(profiles_dir, profile);
+                        rebuild_slot_rosters();
+                    }
                     break;
+                }
+                case MenuAction::NewGameSlot: {
+                    profile = Profile{};
+                    profile.slot = menu.chosen_payload();
+                    profile.loaded = true;
+                    if (static_cast<size_t>(pending_class) < world.content.classes.size()) {
+                        profile.class_id =
+                            world.content.classes[static_cast<size_t>(pending_class)].id;
+                    }
+                    save_profile(profiles_dir, profile);
+                    rebuild_slot_rosters();
+                    run_suspended = false;
+                    open_hub(); // the intro milestone routes here instead
+                    break;
+                }
+                case MenuAction::LoadSlot: {
+                    std::string error;
+                    if (load_profile(profiles_dir, menu.chosen_payload(), profile, &error)) {
+                        const int cls = world.content.find_class(profile.class_id);
+                        pending_class = cls >= 0 ? cls : 0;
+                        run_suspended = false;
+                        open_hub();
+                    } else {
+                        log_warn("load failed: {}", error);
+                    }
+                    break;
+                }
+                case MenuAction::BuyUpgrade: {
+                    const auto idx = static_cast<size_t>(menu.chosen_payload());
+                    if (idx < world.content.upgrades.size()) {
+                        const UpgradeDef& u = world.content.upgrades[idx];
+                        int& owned = profile.upgrades[u.id];
+                        const int cost = u.cost_at(owned);
+                        if (owned < u.max_ranks && profile.embers >= cost) {
+                            profile.embers -= cost;
+                            ++owned;
+                            save_profile(profiles_dir, profile);
+                            audio.play("levelup");
+                        }
+                        rebuild_sanctum();
+                        menu.set_status_line(std::format(
+                            "EMBERS {}   ·   RUNS {}   ·   BEST FLOOR {}", profile.embers,
+                            profile.records.runs, profile.records.best_floor));
+                    }
+                    break;
+                }
                 case MenuAction::OpenTree:
                     open_tree();
                     break;
@@ -780,9 +909,26 @@ int App::run_windowed(Platform& platform) {
                 audio.play("dash");    // stair whoosh, until a dedicated cue exists
             }
             if (world.player_dead) {
+                int embers_gained = 0;
+                if (profile.loaded && !death_recorded) {
+                    death_recorded = true;
+                    embers_gained = embers_for_run(world.score, world.current_floor);
+                    profile.embers += embers_gained;
+                    profile.records.runs += 1;
+                    profile.records.best_floor =
+                        std::max(profile.records.best_floor, world.current_floor);
+                    profile.records.best_score = std::max(profile.records.best_score, world.score);
+                    for (const TelemetryEvent& ev : world.telem.events()) {
+                        profile.records.kills += ev.type == EvType::EnemyKilled ? 1 : 0;
+                    }
+                    save_profile(profiles_dir, profile);
+                    rebuild_slot_rosters();
+                }
+                run_suspended = false;
                 open_menu(MenuScreen::Death, GamePhase::Dead); // death → death screen
-                menu.set_status_line(
-                    std::format("FINAL SCORE  {}  ·  FLOOR {}", world.score, world.current_floor));
+                menu.set_status_line(std::format("FINAL SCORE {}  ·  FLOOR {}  ·  +{} EMBERS",
+                                                 world.score, world.current_floor,
+                                                 embers_gained));
             }
         } else {
             acc = 0.0;
@@ -898,8 +1044,11 @@ int App::run_windowed(Platform& platform) {
         view.camera.pos = {pos.x, r_eye_height.value, pos.y};
         view.camera.yaw = cam_yaw + fx_kick.x; // render-only kick; sim aim unaffected
         view.camera.pitch = std::clamp(cam_pitch + fx_kick.y, -kMaxPitch, kMaxPitch);
-        if (phase == GamePhase::Title) {
-            // Slow idle spin at the spawn point as a live backdrop for the title.
+        const bool home_screen = phase == GamePhase::Title ||
+                                 (phase == GamePhase::Hub && !run_suspended);
+        if (home_screen) {
+            // Slow idle spin at the spawn point as a live backdrop for the
+            // title and camp (a suspended run keeps its own frozen view).
             view.camera.yaw = static_cast<float>(run_time) * 0.25f;
             view.camera.pitch = -0.08f;
         }
@@ -984,7 +1133,8 @@ int App::run_windowed(Platform& platform) {
             hud.feats = chips;
             int pw = 0, ph = 0;
             SDL_GetWindowSizeInPixels(window, &pw, &ph);
-            if (phase != GamePhase::Title) { // no gameplay HUD behind the title
+            // No gameplay HUD behind the title/camp home screens.
+            if (phase != GamePhase::Title && !(phase == GamePhase::Hub && !run_suspended)) {
                 build_hud(view, hud, {static_cast<float>(pw), static_cast<float>(ph)}, &font);
             }
         }

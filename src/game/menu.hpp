@@ -17,17 +17,30 @@ struct FontAtlas;
 // state machine is unit-testable and the screens render through the same
 // overlay pipeline as the HUD.
 
-enum class MenuScreen : uint8_t { Title, Pause, Settings, Death, ClassSelect };
+enum class MenuScreen : uint8_t {
+    Title,
+    Pause,
+    Settings,
+    Death,
+    ClassSelect,
+    Hub,      // the camp: home once a profile exists
+    SlotNew,  // pick a slot for NEW GAME (occupied slots arm-then-confirm)
+    SlotLoad, // pick a slot to LOAD
+    Sanctum,  // spend embers on permanent upgrades
+};
 
 enum class MenuAction : uint8_t {
     None,
     StartRun,
     Resume,
     Restart,
-    QuitToTitle,
+    QuitToTitle, // context-sensitive: pause = suspend to camp, death = run over
     QuitGame,
     SelectClass, // read the choice with chosen_payload()
     OpenTree,    // the skill-tree page (owned by the app, not MenuSystem)
+    NewGameSlot, // chosen_payload() = slot
+    LoadSlot,    // chosen_payload() = slot
+    BuyUpgrade,  // chosen_payload() = ContentDB::upgrades index
 };
 
 // Edge-triggered navigation input for one frame.
@@ -53,7 +66,8 @@ struct MenuItem {
     bool destructive = false; // red styling (ABANDON et al.)
     MenuAction action = MenuAction::None;
     int push_screen = -1; // >= 0: pushes MenuScreen(push_screen) instead of acting
-    int payload = -1;     // SelectClass: the roster payload
+    int payload = -1;     // roster actions: the entry payload
+    bool tag = false;     // roster flag (slot occupied, upgrade buyable, ...)
     // Slider: bound console variable (skipped if the cvar doesn't exist).
     std::string cvar;
     float min = 0.0f;
@@ -62,12 +76,13 @@ struct MenuItem {
     bool integer = false; // display without decimals
 };
 
-// One choice on the class-select screen, injected by the app from ContentDB
-// (the menu itself stays content-blind).
+// One choice on a dynamic roster screen (class select, save slots, sanctum),
+// injected by the app so the menu itself stays content-blind.
 struct RosterEntry {
     std::string label;
     std::string blurb;
     int payload = 0;
+    bool tag = false; // screen-specific flag: slot occupied / upgrade buyable
 };
 
 class MenuSystem {
@@ -82,12 +97,17 @@ public:
     // Extra line under the header (e.g. the death screen's final score).
     void set_status_line(std::string line) { status_line_ = std::move(line); }
 
-    // Class-select roster + which payload is currently active.
+    // Dynamic roster screens (ClassSelect, SlotNew, SlotLoad, Sanctum).
+    void set_roster(MenuScreen screen, std::vector<RosterEntry> roster);
+    // Class-select convenience: roster + which payload is currently active.
     void set_class_roster(std::vector<RosterEntry> roster, int current_payload) {
-        class_roster_ = std::move(roster);
+        set_roster(MenuScreen::ClassSelect, std::move(roster));
         roster_current_ = current_payload;
     }
     int chosen_payload() const { return chosen_payload_; }
+
+    // Shows QUICK RESUME / RESUME DESCENT entries (a run is suspended).
+    void set_resume_available(bool available) { resume_available_ = available; }
 
     // Rebuilds the current screen's items, applies navigation/mouse input,
     // adjusts bound cvars, and returns the action the app should execute.
@@ -109,14 +129,18 @@ private:
     MenuAction activate(size_t index);
     void adjust_slider(size_t index, int dir);
 
+    const std::vector<RosterEntry>& roster_for(MenuScreen screen) const;
+
     std::vector<MenuScreen> stack_;
     std::vector<MenuItem> items_;
     size_t selection_ = 0;
     glm::vec2 viewport_{1280.0f, 720.0f};
     std::string status_line_;
-    std::vector<RosterEntry> class_roster_;
-    int roster_current_ = 0;
+    std::vector<std::pair<MenuScreen, std::vector<RosterEntry>>> rosters_;
+    int roster_current_ = 0;   // ClassSelect: the CHOSEN payload
     int chosen_payload_ = -1;
+    int armed_slot_ = -1;      // SlotNew: occupied slot awaiting overwrite confirm
+    bool resume_available_ = false;
 };
 
 } // namespace ds

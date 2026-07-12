@@ -1,0 +1,42 @@
+{
+  "tough_hide": {
+    "name": "Tough Hide",
+    "desc": "+10 max health per rank.",
+    "max_ranks": 5,
+    "cost": 100,
+    "cost_per_rank": 75,
+    "modifiers": [ { "stat": "max_hp", "op": "add", "value": 10 } ]
+  },
+  "keen_edge": {
+    "name": "Keen Edge",
+    "desc": "+5% melee damage per rank.",
+    "max_ranks": 5,
+    "cost": 100,
+    "cost_per_rank": 75,
+    "modifiers": [ { "stat": "melee_damage_mult", "op": "mult", "value": 1.05 } ]
+  },
+  "focused_mind": {
+    "name": "Focused Mind",
+    "desc": "+5% magic damage per rank.",
+    "max_ranks": 5,
+    "cost": 100,
+    "cost_per_rank": 75,
+    "modifiers": [ { "stat": "magic_damage_mult", "op": "mult", "value": 1.05 } ]
+  },
+  "fleet_boots": {
+    "name": "Fleet Boots",
+    "desc": "+3% move speed per rank.",
+    "max_ranks": 3,
+    "cost": 150,
+    "cost_per_rank": 100,
+    "modifiers": [ { "stat": "move_speed_mult", "op": "mult", "value": 1.03 } ]
+  },
+  "iron_will": {
+    "name": "Iron Will",
+    "desc": "+2% damage resistance per rank.",
+    "max_ranks": 5,
+    "cost": 150,
+    "cost_per_rank": 100,
+    "modifiers": [ { "stat": "defense_pct", "op": "add", "value": 0.02 } ]
+  }
+}

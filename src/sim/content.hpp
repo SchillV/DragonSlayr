@@ -112,6 +112,20 @@ struct FeatDef {
     std::vector<ItemHookDef> hooks;
 };
 
+// A permanent hub upgrade (meta-progression): each rank re-applies the
+// modifier list, bought with embers at the Sanctum, stored in the profile.
+struct UpgradeDef {
+    std::string id;
+    std::string name;
+    std::string desc;
+    int max_ranks = 5;
+    int cost = 100;          // first rank
+    int cost_per_rank = 75;  // added per owned rank
+    std::vector<ItemModifierDef> modifiers; // applied once per rank
+
+    int cost_at(int owned_ranks) const { return cost + cost_per_rank * owned_ranks; }
+};
+
 // A playable class: starting attributes, starting feats, weapon loadout.
 // Applied once at run start (attributes as kClassSource modifiers, feats via
 // grant_feat) — after that the run belongs to items/trees, so classes stay
@@ -181,6 +195,7 @@ struct ContentDB {
     std::vector<FeatDef> feats;
     std::vector<ClassDef> classes;
     std::vector<SkillTreeDef> skill_trees;
+    std::vector<UpgradeDef> upgrades;
 
     int find_enemy(std::string_view id) const;
     int find_weapon(std::string_view id) const;
@@ -188,6 +203,7 @@ struct ContentDB {
     int find_feat(std::string_view id) const;
     int find_class(std::string_view id) const;
     int find_skill_tree(std::string_view id) const;
+    int find_upgrade(std::string_view id) const;
 
     // On failure: returns false, fills `error` (with the offending JSON key
     // path) and leaves the db unchanged.
@@ -204,6 +220,8 @@ struct ContentDB {
     // Load feats first: tree nodes referencing unknown feats are load errors.
     bool load_skill_trees_from_string(std::string_view json_text, std::string* error = nullptr);
     bool load_skill_trees(const std::filesystem::path& path, std::string* error = nullptr);
+    bool load_upgrades_from_string(std::string_view json_text, std::string* error = nullptr);
+    bool load_upgrades(const std::filesystem::path& path, std::string* error = nullptr);
 };
 
 } // namespace ds

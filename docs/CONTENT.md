@@ -267,10 +267,39 @@ the run.
 
 - **Attributes, feats, classes, skill trees** — _done_: the str/dex/vit/mag layer, stackable
   feats, class defs, and per-run skill trees with the procedural page. See the recipes above.
+- **Hub / meta-progression** — _done_: save-slot profiles, THE CAMP screen, embers, and
+  `hub_upgrades.json` (see below). The one-time intro binds new heroes to the dungeon.
+- **Bosses & the wyrm brain** — _done_: `bosses.json` + the learning loop (see below).
 
-_Planned — designed seams, not finished features:_
+## Adding a hub upgrade — `assets/data/hub_upgrades.json`
 
-- **Hub / meta-progression** — the camp between runs from the design (persistent wallet spent
-  on permanent unlocks); the per-run tree machinery is built to sit under it.
-- **Boss learning** — the original premise; the telemetry corpus (now including builds: feats,
-  level-ups, skill purchases) is its input.
+A permanent, ember-priced rank ladder; each rank re-applies its `modifiers` at run start
+(`kMetaSource`): `{"name", "desc", "max_ranks", "cost", "cost_per_rank", "modifiers": [...]}` —
+the SANCTUM screen lists the roster automatically.
+
+## Adding a boss — `assets/data/bosses.json`
+
+Every 3rd floor the arena hosts a boss drawn from the same weighted-table mechanism as enemies
+(`spawn_weight`/`min_floor`). A def is stats (`hp` + `hp_per_floor`, `speed`, `contact_damage`,
+`phase2_at`, `score`/`xp`) plus a weighted `patterns` list drawn from the curated C++ palette in
+`src/sim/boss.cpp`: `ground_slam` (telegraphed AoE), `charge`, `projectile_ring`, `summon_adds`.
+Numbers (`damage`, `radius`, `count`, `speed`, `cooldown_s`) are per-pattern data. The boss
+seals the stairs until it dies; fights emit `boss_engaged` / `boss_pattern` / `boss_killed`
+telemetry. New pattern types are one enum value + a case in `step_pattern` + a counter-tag.
+
+## The wyrm brain — how the boss learns
+
+`src/sim/boss_brain.{hpp,cpp}` (pure and deterministic; state lives in the profile, the sim
+never touches disk). Each pattern type declares a **counter-tag** (what it punishes: melee /
+ranged / kite / turtle). From the telemetry stream the brain extracts a `FightStyle`
+(melee-vs-bolt ratio from kills and attack mix; mobility from move samples + dash rate), maps it
+to the tag weights that would punish it, and EWMA-updates two memories:
+
+- **Long-term, per class** (`profile.brain`): updated after every run, deeper runs teach more —
+  "patterns across runs for each character".
+- **Short-term, per run**: updated after each floor-boss fight (faster α) — "gauge the specific
+  run from the floor bosses and how they were killed".
+
+Effective pattern weights = data weight × long × short (clamped so nothing vanishes or
+dominates). The RECORDS screen narrates the memory ("THE WYRM REMEMBERS · IT STUDIES YOUR
+BLADE ×1.6"); `ai.brain 0` disables the whole loop.

@@ -37,6 +37,7 @@ const char* screen_title(MenuScreen s) {
     case MenuScreen::SlotNew: return "NEW GAME";
     case MenuScreen::SlotLoad: return "LOAD GAME";
     case MenuScreen::Sanctum: return "SANCTUM";
+    case MenuScreen::Records: return "RECORDS";
     }
     return "";
 }
@@ -44,7 +45,8 @@ const char* screen_title(MenuScreen s) {
 // Roster screens pop with BACK; used by activate() and build_items().
 bool is_roster_screen(MenuScreen s) {
     return s == MenuScreen::ClassSelect || s == MenuScreen::SlotNew ||
-           s == MenuScreen::SlotLoad || s == MenuScreen::Sanctum;
+           s == MenuScreen::SlotLoad || s == MenuScreen::Sanctum ||
+           s == MenuScreen::Records;
 }
 
 // Title and the hub use the design's left-column layout; the in-game screens
@@ -66,7 +68,7 @@ Layout layout_for(MenuScreen s, size_t item_count, glm::vec2 vp) {
         l.list_origin = {vp.x * 0.14f, vp.y * 0.42f};
         l.item_w = 340.0f * scale;
     } else if (s == MenuScreen::SlotNew || s == MenuScreen::SlotLoad ||
-               s == MenuScreen::Sanctum) {
+               s == MenuScreen::Sanctum || s == MenuScreen::Records) {
         const float list_h = static_cast<float>(item_count) * l.item_h;
         l.item_w = 380.0f * scale; // roster lines carry summaries
         l.list_origin = {(vp.x - l.item_w) * 0.5f, (vp.y - list_h) * 0.55f};
@@ -183,7 +185,7 @@ void MenuSystem::rebuild_items() {
         items_.push_back(button("DESCEND", MenuAction::StartRun));
         items_.push_back(submenu("TRAIN", MenuScreen::ClassSelect));
         items_.push_back(submenu("SANCTUM", MenuScreen::Sanctum));
-        items_.push_back(placeholder("RECORDS · SOON"));
+        items_.push_back(submenu("RECORDS", MenuScreen::Records));
         items_.push_back(submenu("OPTIONS", MenuScreen::Settings));
         items_.push_back(button("QUIT TO DESKTOP", MenuAction::QuitGame, /*destructive=*/true));
         break;
@@ -225,6 +227,13 @@ void MenuSystem::rebuild_items() {
             it.action = MenuAction::LoadSlot;
             it.payload = entry.payload;
             items_.push_back(std::move(it));
+        }
+        items_.push_back(button("BACK", MenuAction::None));
+        break;
+    case MenuScreen::Records:
+        // Read-only lines; only BACK is selectable.
+        for (const RosterEntry& entry : roster_for(MenuScreen::Records)) {
+            items_.push_back(placeholder(entry.label));
         }
         items_.push_back(button("BACK", MenuAction::None));
         break;

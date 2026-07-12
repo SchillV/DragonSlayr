@@ -18,6 +18,7 @@
 #include "game/stats_ui.hpp"
 #include "render/gpu_renderer.hpp"
 #include "render/texture_load.hpp"
+#include "sim/boss_brain.hpp"
 #include "sim/feats.hpp"
 #include "sim/items.hpp"
 #include "sim/progression.hpp"
@@ -55,6 +56,7 @@ CVar& fx_indicator_ttl = cvar_register("fx.indicator_ttl", 1.0f, "damage directi
 CVar& fx_lowhp = cvar_register("fx.lowhp_threshold", 0.3f, "low-health warning threshold, fraction of max hp");
 CVar& fx_hitmarker = cvar_register("fx.hitmarker", 1.0f, "hitmarker flashes (0 disables)");
 CVar& snd_volume = cvar_register("snd.volume", 0.8f, "master volume, 0-1");
+CVar& ai_brain = cvar_register("ai.brain", 1.0f, "the wyrm learns across runs (0 disables)");
 
 // Which mode the windowed session is in; the sim only ticks while Playing
 // (and during the playable intro).
@@ -556,6 +558,12 @@ int App::run_windowed(Platform& platform) {
     bool intro_binding = false;   // the binding card is up
     double intro_card_t = 0.0;
 
+    // The wyrm brain: long-term memory per class (persisted in the profile)
+    // plus a faster per-run overlay fed by each floor-boss fight.
+    std::map<std::string, BrainState> brains;
+    BrainState run_overlay;
+    uint32_t boss_engage_tick = 0;
+
     // Combat-feedback state: render-side only, fed by the telemetry stream.
     std::vector<DamageIndicator> fx_indicators;
     float fx_hitmarker_t = 0.0f;
@@ -574,18 +582,27 @@ int App::run_windowed(Platform& platform) {
         world.telem.write_json(telemetry_dir(cfg_), world.content, outcome,
                                cvar_any_cheat_touched());
     };
+    auto apply_brain_weights = [&] {
+        if (!ai_brain.as_bool() || !profile.loaded) {
+            world.boss_tag_weights = {1.0f, 1.0f, 1.0f, 1.0f};
+            return;
+        }
+        world.boss_tag_weights = brain_tag_weights(brains[profile.class_id], run_overlay);
+    };
     auto regenerate = [&](uint64_t new_seed) {
         write_telemetry(world.player_dead ? "death" : "restart");
         seed = new_seed;
         world.selected_class = pending_class;
         run_suspended = false;
         death_recorded = false;
+        run_overlay = BrainState{}; // the wyrm meets this run fresh
         GenParams params;
         params.seed = seed;
         world.init_from_dungeon(generate_dungeon(params), seed);
         if (profile.loaded) {
             apply_meta_upgrades(world, profile);
         }
+        apply_brain_weights();
         renderer.set_dungeon_mesh(build_dungeon_mesh(world.map()));
         cam_yaw = 0.0f;
         cam_pitch = 0.0f;
@@ -729,8 +746,39 @@ int App::run_windowed(Platform& platform) {
         }
         menu.set_roster(MenuScreen::Sanctum, std::move(roster));
     };
+    auto rebuild_records = [&] {
+        std::vector<RosterEntry> lines;
+        lines.push_back({std::format("RUNS {}   ·   BEST FLOOR {}   ·   BEST SCORE {}",
+                                     profile.records.runs, profile.records.best_floor,
+                                     profile.records.best_score),
+                         "", 0});
+        lines.push_back(
+            {std::format("KILLS {}   ·   EMBERS BANKED {}", profile.records.kills, profile.embers),
+             "", 1});
+        lines.push_back({"", "", 2});
+        lines.push_back({"THE WYRM REMEMBERS", "", 3});
+        const BrainState& brain = brains[profile.class_id];
+        // Tag order matches CounterTag: Melee, Ranged, Kite, Turtle.
+        const char* readings[] = {"IT STUDIES YOUR BLADE", "IT WATCHES YOUR BOLTS",
+                                  "IT CUTS OFF RETREATS", "IT BESIEGES HELD GROUND"};
+        bool any = false;
+        for (size_t i = 0; i < kCounterTagCount; ++i) {
+            if (brain.weights[i] > 1.15f) {
+                lines.push_back(
+                    {std::format("{}  (x{:.1f})", readings[i], brain.weights[i]), "", 4});
+                any = true;
+            }
+        }
+        if (!any) {
+            lines.push_back({brain.observed > 0 ? "IT IS STILL LEARNING YOUR WAYS"
+                                                : "IT KNOWS NOTHING OF YOU · YET",
+                             "", 4});
+        }
+        menu.set_roster(MenuScreen::Records, std::move(lines));
+    };
     auto open_hub = [&] {
         rebuild_sanctum();
+        rebuild_records();
         menu.set_resume_available(run_suspended);
         open_menu(MenuScreen::Hub, GamePhase::Hub);
         menu.set_status_line(std::format("EMBERS {}   ·   RUNS {}   ·   BEST FLOOR {}",
@@ -931,6 +979,8 @@ int App::run_windowed(Platform& platform) {
                     save_profile(profiles_dir, profile);
                     rebuild_slot_rosters();
                     run_suspended = false;
+                    brains.clear(); // a fresh fate: the wyrm knows nothing
+                    run_overlay = BrainState{};
                     if (profile.intro_done) {
                         open_hub();
                     } else {
@@ -944,6 +994,8 @@ int App::run_windowed(Platform& platform) {
                         const int cls = world.content.find_class(profile.class_id);
                         pending_class = cls >= 0 ? cls : 0;
                         run_suspended = false;
+                        brains = brain_from_json(profile.brain);
+                        run_overlay = BrainState{};
                         open_hub();
                     } else {
                         log_warn("load failed: {}", error);
@@ -1046,6 +1098,16 @@ int App::run_windowed(Platform& platform) {
                     for (const TelemetryEvent& ev : world.telem.events()) {
                         profile.records.kills += ev.type == EvType::EnemyKilled ? 1 : 0;
                     }
+                    // Long-term learning: the whole run's style, weighted by
+                    // how deep it got, folds into the wyrm's memory of this class.
+                    if (ai_brain.as_bool()) {
+                        const FightStyle run_style =
+                            extract_style(world.telem.events(), 0,
+                                          static_cast<uint32_t>(world.tick_count), world.content);
+                        brain_update_long(brains[profile.class_id], run_style,
+                                          world.current_floor);
+                        profile.brain = brain_to_json(brains);
+                    }
                     save_profile(profiles_dir, profile);
                     rebuild_slot_rosters();
                 }
@@ -1099,14 +1161,24 @@ int App::run_windowed(Platform& platform) {
                 break;
             case EvType::PlayerDash: audio.play("dash"); break;
             case EvType::LevelUp: audio.play("levelup"); break;
-            case EvType::BossEngaged: audio.play("heartbeat"); break; // the seal stirs
-            case EvType::BossKilled:
+            case EvType::BossEngaged:
+                audio.play("heartbeat"); // the seal stirs
+                boss_engage_tick = ev.tick;
+                break;
+            case EvType::BossKilled: {
                 audio.play("kill");
                 if (fx_hitmarker.as_bool()) {
                     fx_hitmarker_t = 1.0f;
                     fx_hitmarker_kill = true;
                 }
+                // Short-term learning: how THIS fight was won shapes the
+                // patterns of every boss deeper in this run.
+                const FightStyle fight = extract_style(world.telem.events(), boss_engage_tick,
+                                                       ev.tick, world.content);
+                brain_update_short(run_overlay, fight);
+                apply_brain_weights();
                 break;
+            }
             default: break;
             }
         }

@@ -63,11 +63,12 @@ cmake --preset headless && cmake --build --preset headless && ctest --preset hea
 
 ## Roadmap (agreed next work, in order)
 
-Done: enemy variety (behaviors + weighted spawn tables), combat-feel pack, menu framework,
-generic content loader (`JsonReader` + `load_category`), stat/modifier layer with str/dex/vit/mag
-attributes (`src/sim/stats.hpp`), items + synergies (`items.json`), levels & rooms (stairs,
-per-floor scaling, room types), feats (`feats.json`, stackable modifier/hook bundles), classes
-(`classes.json` = attrs + feats + loadout, class-select screen), per-run skill trees
-(`skill_trees.json` DAGs, validated; procedural page on T/Pause; xp/levels via
-`sim/progression.*`). Next: **hub/meta-progression**, then **boss learning** (see
-`docs/CONTENT.md` roadmap).
+Done: enemy variety, combat-feel pack, menu framework, generic content loader, stat/modifier
+layer with str/dex/vit/mag attributes, items + synergies, levels & rooms, feats, classes,
+per-run skill trees (procedural page on T), character sheet (C), save-slot profiles + THE CAMP
+hub (embers, `hub_upgrades.json` sanctum, records), the one-time cave-binding intro, floor
+bosses every 3rd floor (`bosses.json`, pattern palette in `sim/boss.*`, sealed stairs), and the
+**wyrm brain** (`sim/boss_brain.*`: per-class long-term + per-run short-term learning from
+telemetry, persisted in profiles). Candidate next steps: more boss/pattern content, richer hub
+stations (crafting/leaderboard pages from the design), mid-run disk saves, multi-font UI. See
+`docs/CONTENT.md`.

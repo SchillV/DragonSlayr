@@ -42,6 +42,7 @@ add_library(ds_sim STATIC
   src/sim/feats.cpp
   src/sim/progression.cpp
   src/sim/boss.cpp
+  src/sim/boss_brain.cpp
 )
 target_include_directories(ds_sim PUBLIC src)
 target_link_libraries(ds_sim
@@ -114,6 +115,7 @@ add_executable(ds_tests
   tests/test_stats_ui.cpp
   tests/test_intro.cpp
   tests/test_boss.cpp
+  tests/test_brain.cpp
   src/render/texture_load.cpp
   src/render/dungeon_mesh.cpp
   src/render/font.cpp

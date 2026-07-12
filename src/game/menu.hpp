@@ -27,6 +27,7 @@ enum class MenuScreen : uint8_t {
     SlotNew,  // pick a slot for NEW GAME (occupied slots arm-then-confirm)
     SlotLoad, // pick a slot to LOAD
     Sanctum,  // spend embers on permanent upgrades
+    Records,  // read-only: run records + what the wyrm remembers
 };
 
 enum class MenuAction : uint8_t {

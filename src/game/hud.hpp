@@ -37,6 +37,9 @@ struct HudState {
     bool dead = false;
     int score = 0;
     int floor = 1;
+    int level = 1;
+    float xp01 = 0.0f;    // progress into the current level, 0..1
+    int skill_points = 0; // unspent points -> show the tree hint
     // combat feedback
     float cam_yaw = 0.0f;
     double time = 0.0;            // seconds, drives low-health pulsing

@@ -172,6 +172,26 @@ void build_hud(FrameView& view, const HudState& state, glm::vec2 vp, const FontA
                       {pos.x + size.x + 8.0f * scale, pos.y + (size.y - tsize.y) * 0.5f}, ts,
                       {0.95f, 0.92f, 0.82f, 0.95f});
         }
+
+        // XP sliver + level under the health bar; a hint when points wait.
+        const float xp_y = pos.y + size.y + 3.0f * scale;
+        push_solid(view, {pos.x, xp_y}, {size.x, 2.0f * scale}, {0.0f, 0.0f, 0.0f, 0.55f});
+        push_solid(view, {pos.x, xp_y}, {size.x * std::clamp(state.xp01, 0.0f, 1.0f), 2.0f * scale},
+                   {0.79f, 0.64f, 0.29f, 0.9f});
+        if (font && font->valid()) {
+            emit_text(view.overlay_text, *font, std::format("LV {}", state.level),
+                      {pos.x, xp_y + 4.0f * scale}, scale, {0.79f, 0.64f, 0.29f, 0.85f}, 1.0f);
+            if (state.skill_points > 0 && !state.dead) {
+                const float pulse =
+                    0.6f + 0.4f * static_cast<float>(
+                                      std::sin(state.time * 2.0 * glm::two_pi<double>()) * 0.5 + 0.5);
+                emit_text(view.overlay_text, *font,
+                          std::format("+{} POINT{} · T", state.skill_points,
+                                      state.skill_points > 1 ? "S" : ""),
+                          {pos.x + 42.0f * scale, xp_y + 4.0f * scale}, scale,
+                          {0.91f, 0.85f, 0.69f, pulse}, 1.0f);
+            }
+        }
     }
 
     // Active feats, bottom-right: diamond + "NAME xN" chips per the design's

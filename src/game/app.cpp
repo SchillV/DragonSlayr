@@ -10,10 +10,12 @@
 #include "render/debug_ui.hpp"
 #include "render/dungeon_mesh.hpp"
 #include "render/font.hpp"
+#include "game/skill_tree_ui.hpp"
 #include "render/gpu_renderer.hpp"
 #include "render/texture_load.hpp"
 #include "sim/feats.hpp"
 #include "sim/items.hpp"
+#include "sim/progression.hpp"
 #include "sim/bot.hpp"
 #include "sim/components.hpp"
 #include "sim/dungeon_gen.hpp"
@@ -50,7 +52,7 @@ CVar& fx_hitmarker = cvar_register("fx.hitmarker", 1.0f, "hitmarker flashes (0 d
 CVar& snd_volume = cvar_register("snd.volume", 0.8f, "master volume, 0-1");
 
 // Which mode the windowed session is in; the sim only ticks while Playing.
-enum class GamePhase : uint8_t { Title, Playing, Paused, Dead };
+enum class GamePhase : uint8_t { Title, Playing, Paused, Dead, Tree };
 
 using Clock = std::chrono::steady_clock;
 
@@ -200,6 +202,12 @@ void load_content(World& world, const std::filesystem::path& data_dir) {
         log_warn("class content unavailable: {}", error);
     } else {
         log_info("loaded {} class defs", world.content.classes.size());
+    }
+    error.clear(); // after feats: tree nodes referencing unknown feats are load errors
+    if (!world.content.load_skill_trees(data_dir / "skill_trees.json", &error)) {
+        log_warn("skill tree content unavailable: {}", error);
+    } else {
+        log_info("loaded {} skill trees", world.content.skill_trees.size());
     }
 }
 
@@ -584,14 +592,24 @@ int App::run_windowed(Platform& platform) {
     }
     float applied_volume = -1.0f;
     glm::vec2 last_mouse_px{-1.0f, -1.0f};
+    SkillTreeUi tree_ui;
     auto enter_playing = [&] {
         menu.close();
+        tree_ui.close();
         phase = GamePhase::Playing;
         SDL_SetWindowRelativeMouseMode(window, true);
     };
     auto open_menu = [&](MenuScreen s, GamePhase p) {
         menu.open(s);
+        tree_ui.close();
         phase = p;
+        SDL_SetWindowRelativeMouseMode(window, false);
+    };
+    auto open_tree = [&] {
+        menu.close();
+        phase = GamePhase::Tree;
+        // Placeholder viewport; update() re-lays-out against the real one.
+        tree_ui.open(world, {1280.0f, 720.0f});
         SDL_SetWindowRelativeMouseMode(window, false);
     };
     open_menu(MenuScreen::Title, GamePhase::Title);
@@ -617,18 +635,23 @@ int App::run_windowed(Platform& platform) {
                 cam_pitch = std::clamp(cam_pitch - ev.motion.yrel * sens, -kMaxPitch, kMaxPitch);
             } else if (ev.type == SDL_EVENT_KEY_DOWN && !ui_captured) {
                 const SDL_Keycode k = ev.key.key;
-                if (menu.active()) {
+                if (menu.active() || phase == GamePhase::Tree) {
                     menu_input.up |= k == SDLK_UP || k == SDLK_W;
                     menu_input.down |= k == SDLK_DOWN || k == SDLK_S;
                     menu_input.left |= k == SDLK_LEFT || k == SDLK_A;
                     menu_input.right |= k == SDLK_RIGHT || k == SDLK_D;
                     menu_input.select |= k == SDLK_RETURN || k == SDLK_SPACE;
                     menu_input.back |= k == SDLK_ESCAPE;
-                } else if (k == SDLK_ESCAPE && phase == GamePhase::Playing) {
-                    open_menu(MenuScreen::Pause, GamePhase::Paused);
+                } else if (phase == GamePhase::Playing) {
+                    if (k == SDLK_ESCAPE) {
+                        open_menu(MenuScreen::Pause, GamePhase::Paused);
+                    } else if (k == SDLK_T) {
+                        open_tree();
+                    }
                 }
             } else if (ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
-                       ev.button.button == SDL_BUTTON_LEFT && menu.active() && !ui_captured) {
+                       ev.button.button == SDL_BUTTON_LEFT &&
+                       (menu.active() || phase == GamePhase::Tree) && !ui_captured) {
                 menu_input.click = true;
             }
         }
@@ -688,8 +711,8 @@ int App::run_windowed(Platform& platform) {
             audio.set_volume(applied_volume);
         }
 
-        // Menu navigation, mouse hit-testing and action dispatch.
-        if (menu.active()) {
+        // Menu / tree-page navigation, mouse hit-testing and action dispatch.
+        if (menu.active() || phase == GamePhase::Tree) {
             int pw = 0, ph = 0;
             SDL_GetWindowSizeInPixels(window, &pw, &ph);
             const glm::vec2 mvp{static_cast<float>(pw), static_cast<float>(ph)};
@@ -704,27 +727,37 @@ int App::run_windowed(Platform& platform) {
                 menu_input.mouse_moved = glm::distance(mpx, last_mouse_px) > 0.5f;
                 last_mouse_px = mpx;
             }
-            switch (menu.update(menu_input, mvp)) {
-            case MenuAction::StartRun:
-            case MenuAction::Restart:
-                regenerate(seed + 1);
-                enter_playing();
-                break;
-            case MenuAction::Resume:
-                enter_playing();
-                break;
-            case MenuAction::QuitToTitle:
-                regenerate(seed + 1);
-                open_menu(MenuScreen::Title, GamePhase::Title);
-                break;
-            case MenuAction::QuitGame:
-                running = false;
-                break;
-            case MenuAction::SelectClass:
-                pending_class = menu.chosen_payload(); // takes effect next run
-                break;
-            case MenuAction::None:
-                break;
+            if (menu.active()) {
+                switch (menu.update(menu_input, mvp)) {
+                case MenuAction::StartRun:
+                case MenuAction::Restart:
+                    regenerate(seed + 1);
+                    enter_playing();
+                    break;
+                case MenuAction::Resume:
+                    enter_playing();
+                    break;
+                case MenuAction::QuitToTitle:
+                    regenerate(seed + 1);
+                    open_menu(MenuScreen::Title, GamePhase::Title);
+                    break;
+                case MenuAction::QuitGame:
+                    running = false;
+                    break;
+                case MenuAction::SelectClass:
+                    pending_class = menu.chosen_payload(); // takes effect next run
+                    break;
+                case MenuAction::OpenTree:
+                    open_tree();
+                    break;
+                case MenuAction::None:
+                    break;
+                }
+            } else {
+                tree_ui.update(world, menu_input, mvp);
+                if (tree_ui.close_requested()) {
+                    enter_playing();
+                }
             }
         }
 
@@ -796,6 +829,7 @@ int App::run_windowed(Platform& platform) {
                 }
                 break;
             case EvType::PlayerDash: audio.play("dash"); break;
+            case EvType::LevelUp: audio.play("levelup"); break;
             default: break;
             }
         }
@@ -931,6 +965,9 @@ int App::run_windowed(Platform& platform) {
             hud.dead = world.player_dead;
             hud.score = world.score;
             hud.floor = world.current_floor;
+            hud.level = world.level;
+            hud.xp01 = world.xp / std::max(xp_to_next(world.level), 1.0f);
+            hud.skill_points = world.skill_points;
             hud.cam_yaw = cam_yaw;
             hud.time = run_time;
             hud.chip_hp = fx_chip_hp;
@@ -952,9 +989,12 @@ int App::run_windowed(Platform& platform) {
             }
         }
 
-        // Menus draw on top of the (dimmed) world (viewport set by update()).
+        // Menus / the tree page draw on top of the (dimmed) world.
         if (menu.active()) {
             menu.render(view, font);
+        }
+        if (tree_ui.active()) {
+            tree_ui.render(view, font, world);
         }
         renderer.render(view);
 

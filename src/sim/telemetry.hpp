@@ -28,6 +28,8 @@ enum class EvType : uint8_t {
     ItemPickup,       // def = item
     FloorAdvance,     // a = the floor arrived at
     FeatGained,       // def = feat, a = stack count after
+    LevelUp,          // a = new level, b = xp needed for the next
+    SkillPurchase,    // def = node index, flags = tree index, a = cost
 };
 
 struct TelemetryEvent {

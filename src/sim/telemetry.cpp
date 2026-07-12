@@ -28,6 +28,8 @@ const char* type_name(EvType t) {
     case EvType::ItemPickup: return "item_pickup";
     case EvType::FloorAdvance: return "floor_advance";
     case EvType::FeatGained: return "feat_gained";
+    case EvType::LevelUp: return "level_up";
+    case EvType::SkillPurchase: return "skill_purchase";
     }
     return "unknown";
 }
@@ -173,6 +175,19 @@ std::filesystem::path TelemetryRecorder::write_json(const std::filesystem::path&
             e["feat"] = ev.def < content.feats.size() ? content.feats[ev.def].id
                                                       : std::format("#{}", ev.def);
             e["stacks"] = static_cast<int>(ev.a);
+            break;
+        case EvType::LevelUp:
+            e["level"] = static_cast<int>(ev.a);
+            e["next_xp"] = ev.b;
+            break;
+        case EvType::SkillPurchase:
+            if (ev.flags < content.skill_trees.size() &&
+                ev.def < content.skill_trees[ev.flags].nodes.size()) {
+                e["node"] = content.skill_trees[ev.flags].nodes[ev.def].id;
+            } else {
+                e["node"] = std::format("#{}", ev.def);
+            }
+            e["cost"] = static_cast<int>(ev.a);
             break;
         case EvType::RunStart:
         case EvType::RunEnd:

@@ -221,7 +221,33 @@ At run start the attribute package lands as `kClassSource` modifiers, the feats 
 through `grant_feat`, and the loadout picks the weapons (defaults: sword/bolt). Everything
 carries across floors automatically and resets cleanly on restart. The Title menu's
 CLASS & FEATS screen lists this roster (name, blurb, CHOSEN marker) — new classes appear there
-with zero UI work. Unknown feat ids log a warning and are skipped.
+with zero UI work. Unknown feat ids log a warning and are skipped. A `"tree"` field picks the
+class's skill tree (falls back to a tree named after the class, then the first tree).
+
+## Adding a skill tree — `assets/data/skill_trees.json`
+
+Trees are DAGs in data; the SKILL TREE page lays them out **procedurally** (columns from
+prerequisite depth, rows from rank population, connector lines from the edges), so editing the
+JSON *is* editing the screen. Each node spends skill points to grant a feat stack or attribute
+points:
+
+```json
+"knight": {
+  "name": "Path of Embers",
+  "nodes": {
+    "iron_arms": { "name": "Iron Arms", "attr": "str", "points": 2, "cost": 1 },
+    "berserk":   { "name": "Berserk", "feat": "berserk", "cost": 1, "requires": ["iron_arms"] }
+  }
+}
+```
+
+The loader validates hard (full key paths): `requires` ids must exist, the graph must be
+acyclic, `feat` references must exist (load feats first), and every node grants exactly one of
+`feat`/`attr`. Progression is per-run: kills award `xp` (per-enemy field, default `score/5`),
+levels follow `sv.xp_base * level^sv.xp_curve`, each level grants a skill point, and purchases
+(`sim/progression.hpp`) apply through the same modifier/feat machinery as everything else. Open
+the page with **T** in a run or from the Pause menu; progress survives stairs and resets with
+the run.
 
 ---
 
@@ -239,10 +265,12 @@ with zero UI work. Unknown feat ids log a warning and are skipped.
   guaranteed item. Enemy/item defs gate depth via `min_floor`; today's data all unlocks at 1 —
   raising it on brutes/rares is the intended difficulty dial.
 
-_Planned — designed seams, not finished features; in intended order of work:_
+- **Attributes, feats, classes, skill trees** — _done_: the str/dex/vit/mag layer, stackable
+  feats, class defs, and per-run skill trees with the procedural page. See the recipes above.
 
-- **Player classes** — a `ClassDef` selected per run: starting loadout, base stats, and perks.
-  Cheap now that the stat/modifier layer exists (grant modifiers with a class source at run
-  start).
+_Planned — designed seams, not finished features:_
 
-When these land, this document's _(planned)_ markers come off and each gets a concrete recipe.
+- **Hub / meta-progression** — the camp between runs from the design (persistent wallet spent
+  on permanent unlocks); the per-run tree machinery is built to sit under it.
+- **Boss learning** — the original premise; the telemetry corpus (now including builds: feats,
+  level-ups, skill purchases) is its input.

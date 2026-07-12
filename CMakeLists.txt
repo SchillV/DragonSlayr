@@ -40,6 +40,7 @@ add_library(ds_sim STATIC
   src/sim/stats.cpp
   src/sim/items.cpp
   src/sim/feats.cpp
+  src/sim/progression.cpp
 )
 target_include_directories(ds_sim PUBLIC src)
 target_link_libraries(ds_sim
@@ -53,6 +54,7 @@ add_executable(dragonslayr
   src/game/app.cpp
   src/game/hud.cpp
   src/game/menu.cpp
+  src/game/skill_tree_ui.cpp
   src/platform/platform.cpp
   src/platform/input.cpp
   src/platform/audio.cpp
@@ -103,11 +105,13 @@ add_executable(ds_tests
   tests/test_floors.cpp
   tests/test_feats.cpp
   tests/test_classes.cpp
+  tests/test_skilltree.cpp
   src/render/texture_load.cpp
   src/render/dungeon_mesh.cpp
   src/render/font.cpp
   src/game/hud.cpp
   src/game/menu.cpp
+  src/game/skill_tree_ui.cpp
 )
 target_link_libraries(ds_tests PRIVATE ds_warnings ds_sim ds_stb doctest::doctest)
 

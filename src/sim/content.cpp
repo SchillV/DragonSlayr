@@ -118,6 +118,34 @@ public:
         }
     }
 
+    // Visits each entry of an optional id-keyed object (a nested roster, e.g.
+    // skill tree nodes) with its own reader ("path.key.entry_id" in errors).
+    template <typename Fn>
+    void obj_items(const char* key, Fn&& fn) {
+        const json* v = find(key, /*required=*/false);
+        if (!v) {
+            return;
+        }
+        if (!v->is_object()) {
+            return fail(key, "expected an object");
+        }
+        for (const auto& [id, value] : v->items()) {
+            std::string epath = std::format("{}.{}.{}", path_, key, id);
+            if (!value.is_object()) {
+                if (ctx_.ok && ctx_.error) {
+                    *ctx_.error = epath + ": expected an object";
+                }
+                ctx_.ok = false;
+                return;
+            }
+            JsonReader entry(&value, std::move(epath), ctx_);
+            fn(id, entry);
+            if (!ctx_.ok) {
+                return;
+            }
+        }
+    }
+
     void opt_s_array(const char* key, std::vector<std::string>& out) {
         const json* v = find(key, /*required=*/false);
         if (!v) {
@@ -246,6 +274,10 @@ void parse_enemy(JsonReader& r, EnemyDef& out) {
     r.req_s("sprite", out.sprite);
     r.opt_vec2("sprite_size", out.sprite_size);
     r.opt_i("score", out.score);
+    r.opt_i("xp", out.xp);
+    if (out.xp < 0) {
+        out.xp = std::max(1, out.score / 5); // sane default: xp tracks score
+    }
     r.opt_f("spawn_weight", out.spawn_weight);
     r.opt_i("min_floor", out.min_floor);
     r.enum_of("behavior", out.behavior,
@@ -340,6 +372,30 @@ void parse_class(JsonReader& r, ClassDef& out) {
     r.opt_s_array("feats", out.feats);
     r.opt_s("primary", out.primary);
     r.opt_s("secondary", out.secondary);
+    r.opt_s("tree", out.tree);
+}
+
+void parse_skill_tree(JsonReader& r, SkillTreeDef& out) {
+    r.opt_s("name", out.name);
+    r.obj_items("nodes", [&out](const std::string& id, JsonReader& n) {
+        SkillNodeDef node;
+        node.id = id;
+        node.name = id;
+        n.opt_s("name", node.name);
+        n.opt_s("feat", node.feat);
+        std::string attr_name;
+        n.opt_s("attr", attr_name);
+        if (!attr_name.empty() && !stat_from_name(attr_name, node.attr)) {
+            return n.error_at("attr", std::format("unknown stat '{}'", attr_name));
+        }
+        n.opt_i("points", node.attr_points);
+        n.opt_i("cost", node.cost);
+        n.opt_s_array("requires", node.prereqs);
+        if (node.feat.empty() == (node.attr == StatId::Count)) {
+            return n.error_at("feat", "a node grants exactly one of 'feat' or 'attr'");
+        }
+        out.nodes.push_back(std::move(node));
+    });
 }
 
 void parse_weapon(JsonReader& r, WeaponDef& out) {
@@ -386,6 +442,10 @@ int ContentDB::find_class(std::string_view id) const {
     return find_by_id(classes, id);
 }
 
+int ContentDB::find_skill_tree(std::string_view id) const {
+    return find_by_id(skill_trees, id);
+}
+
 bool ContentDB::load_enemies_from_string(std::string_view json_text, std::string* error) {
     return load_category(json_text, "enemies", enemies, parse_enemy, error);
 }
@@ -429,6 +489,75 @@ bool ContentDB::load_classes_from_string(std::string_view json_text, std::string
 bool ContentDB::load_classes(const std::filesystem::path& path, std::string* error) {
     std::string text;
     return load_category_file(path, text, error) && load_classes_from_string(text, error);
+}
+
+bool ContentDB::load_skill_trees_from_string(std::string_view json_text, std::string* error) {
+    std::vector<SkillTreeDef> parsed;
+    if (!load_category(json_text, "skill_trees", parsed, parse_skill_tree, error)) {
+        return false;
+    }
+    // Cross-node validation the per-node parser can't do: prereq ids resolve,
+    // feat references exist, and the graph is acyclic.
+    for (SkillTreeDef& tree : parsed) {
+        for (SkillNodeDef& node : tree.nodes) {
+            if (!node.feat.empty() && find_feat(node.feat) < 0) {
+                if (error) {
+                    *error = std::format("skill_trees.{}.nodes.{}: unknown feat '{}'", tree.id,
+                                         node.id, node.feat);
+                }
+                return false;
+            }
+            for (const std::string& req : node.prereqs) {
+                const int idx = tree.find_node(req);
+                if (idx < 0) {
+                    if (error) {
+                        *error = std::format("skill_trees.{}.nodes.{}: requires unknown node '{}'",
+                                             tree.id, node.id, req);
+                    }
+                    return false;
+                }
+                node.prereq_idx.push_back(idx);
+            }
+        }
+        // Kahn's algorithm: if not every node drains, there's a cycle.
+        std::vector<int> indegree(tree.nodes.size(), 0);
+        for (const SkillNodeDef& node : tree.nodes) {
+            indegree[static_cast<size_t>(tree.find_node(node.id))] =
+                static_cast<int>(node.prereq_idx.size());
+        }
+        std::vector<int> frontier;
+        for (size_t i = 0; i < tree.nodes.size(); ++i) {
+            if (indegree[i] == 0) {
+                frontier.push_back(static_cast<int>(i));
+            }
+        }
+        size_t drained = 0;
+        while (!frontier.empty()) {
+            const int n = frontier.back();
+            frontier.pop_back();
+            ++drained;
+            for (size_t i = 0; i < tree.nodes.size(); ++i) {
+                for (const int p : tree.nodes[i].prereq_idx) {
+                    if (p == n && --indegree[i] == 0) {
+                        frontier.push_back(static_cast<int>(i));
+                    }
+                }
+            }
+        }
+        if (drained != tree.nodes.size()) {
+            if (error) {
+                *error = std::format("skill_trees.{}: 'requires' edges form a cycle", tree.id);
+            }
+            return false;
+        }
+    }
+    skill_trees = std::move(parsed);
+    return true;
+}
+
+bool ContentDB::load_skill_trees(const std::filesystem::path& path, std::string* error) {
+    std::string text;
+    return load_category_file(path, text, error) && load_skill_trees_from_string(text, error);
 }
 
 } // namespace ds

@@ -4,6 +4,7 @@
 #include "sim/collision.hpp"
 #include "sim/components.hpp"
 #include "sim/items.hpp"
+#include "sim/progression.hpp"
 #include "sim/stats.hpp"
 #include "sim/world.hpp"
 
@@ -228,6 +229,7 @@ void damage_enemy(World& world, entt::entity enemy_e, float amount, int weapon_i
     const auto& etr = world.reg.get<Transform>(enemy_e);
     const EnemyDef& def = world.content.enemies[enemy.def];
     world.score += def.score;
+    award_xp(world, static_cast<float>(def.xp));
 
     TelemetryEvent ev;
     ev.tick = static_cast<uint32_t>(world.tick_count);

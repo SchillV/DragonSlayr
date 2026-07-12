@@ -27,6 +27,7 @@ enum class MenuAction : uint8_t {
     QuitToTitle,
     QuitGame,
     SelectClass, // read the choice with chosen_payload()
+    OpenTree,    // the skill-tree page (owned by the app, not MenuSystem)
 };
 
 // Edge-triggered navigation input for one frame.

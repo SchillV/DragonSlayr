@@ -48,6 +48,11 @@ void World::init_from_dungeon(DungeonResult d, uint64_t s) {
     tick_count = 0;
     score = 0;
     current_floor = 1;
+    xp = 0.0f;
+    level = 1;
+    skill_points = 0;
+    purchased_nodes.clear();
+    active_tree = -1;
     cvar_reset_cheat_touched();
 
     telem.begin_run(s);
@@ -60,8 +65,18 @@ void World::init_from_dungeon(DungeonResult d, uint64_t s) {
     // The class shapes the fresh run: attribute package as kClassSource
     // modifiers (so the stat sheet shows where they came from), then the
     // starting feats. Descents carry all of it automatically.
+    // Each class fights along its own tree; fall back to a tree named after
+    // the class, then to the first tree so progression still works.
+    if (!content.skill_trees.empty()) {
+        active_tree = 0;
+    }
     if (selected_class >= 0 && static_cast<size_t>(selected_class) < content.classes.size()) {
         const ClassDef& cls = content.classes[static_cast<size_t>(selected_class)];
+        const int tree =
+            content.find_skill_tree(cls.tree.empty() ? cls.id : cls.tree);
+        if (tree >= 0) {
+            active_tree = tree;
+        }
         auto& stats = reg.get<StatBlock>(player);
         auto push_attr = [&stats](StatId id, int points) {
             if (points != 0) {

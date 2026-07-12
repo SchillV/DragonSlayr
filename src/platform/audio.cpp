@@ -49,6 +49,16 @@ std::vector<int16_t> synth_arpeggio(float volume) {
     return out;
 }
 
+// Brighter, rising major triad for level-ups.
+std::vector<int16_t> synth_levelup(float volume) {
+    std::vector<int16_t> out;
+    for (const float f : {392.0f, 523.0f, 659.0f}) {
+        const auto seg = synth_blip(f, f * 1.02f, 0.1f, volume, 0.3f);
+        out.insert(out.end(), seg.begin(), seg.end());
+    }
+    return out;
+}
+
 // Classic lub-dub: two low thumps with a short gap.
 std::vector<int16_t> synth_heartbeat(float volume) {
     std::vector<int16_t> out = synth_blip(66.0f, 48.0f, 0.10f, volume, 0.04f);
@@ -104,6 +114,7 @@ bool Audio::init(const std::filesystem::path& sounds_dir) {
         {"kill", synth_arpeggio(0.30f)},
         {"dash", synth_blip(500.0f, 900.0f, 0.15f, 0.18f, 0.65f)},
         {"heartbeat", synth_heartbeat(0.45f)},
+        {"levelup", synth_levelup(0.3f)},
     };
 
     for (auto& def : defs) {

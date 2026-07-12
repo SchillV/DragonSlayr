@@ -9,6 +9,7 @@
 #include <entt/entt.hpp>
 
 #include <cstdint>
+#include <vector>
 
 namespace ds {
 
@@ -27,6 +28,14 @@ struct World {
     float player_pitch = 0.0f; // view pitch from the last cmd (used for aiming)
     bool player_dead = false;
     int score = 0;
+    // Per-run progression (see sim/progression.hpp): kills award xp; each
+    // level grants a skill point spent in the class's tree. All of it resets
+    // with the run and survives the stairs.
+    float xp = 0.0f;
+    int level = 1;
+    int skill_points = 0;
+    int active_tree = -1; // ContentDB::skill_trees index, resolved from the class
+    std::vector<uint16_t> purchased_nodes;
     int current_floor = 1;     // drives spawn-table eligibility (advances in the floors milestone)
     int selected_class = 0;    // ContentDB::classes index; set before init_from_dungeon
     int primary_weapon = -1;   // from the class loadout (default "sword")

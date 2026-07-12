@@ -1,0 +1,36 @@
+{
+  "knight": {
+    "name": "Path of Embers",
+    "nodes": {
+      "iron_arms": { "name": "Iron Arms", "attr": "str", "points": 2, "cost": 1 },
+      "thick_hide": { "name": "Thick Hide", "attr": "vit", "points": 2, "cost": 1 },
+      "berserk": { "name": "Berserk", "feat": "berserk", "cost": 1, "requires": ["iron_arms"] },
+      "bulwark": { "name": "Bulwark", "feat": "last_stand", "cost": 1, "requires": ["thick_hide"] },
+      "titan_arms": { "name": "Titan Arms", "attr": "str", "points": 3, "cost": 2, "requires": ["berserk"] },
+      "wyrm_heart": { "name": "Wyrm Heart", "attr": "vit", "points": 3, "cost": 2, "requires": ["bulwark"] },
+      "ember_lord": { "name": "Ember Lord", "feat": "berserk", "cost": 2, "requires": ["titan_arms", "wyrm_heart"] }
+    }
+  },
+  "ranger": {
+    "name": "Path of Wind",
+    "nodes": {
+      "fleet_foot": { "name": "Fleet Foot", "attr": "dex", "points": 2, "cost": 1 },
+      "hunters_eye": { "name": "Hunter's Eye", "feat": "keen_eye", "cost": 1 },
+      "bloodlust": { "name": "Bloodlust", "feat": "bloodlust", "cost": 1, "requires": ["fleet_foot"] },
+      "gale": { "name": "Gale", "attr": "dex", "points": 3, "cost": 2, "requires": ["bloodlust"] },
+      "stalker": { "name": "Stalker", "attr": "str", "points": 2, "cost": 1, "requires": ["hunters_eye"] },
+      "tempest": { "name": "Tempest", "feat": "bloodlust", "cost": 2, "requires": ["gale", "stalker"] }
+    }
+  },
+  "mage": {
+    "name": "Path of Stars",
+    "nodes": {
+      "spark": { "name": "Spark", "attr": "mag", "points": 2, "cost": 1 },
+      "thin_blood": { "name": "Thin Blood", "attr": "vit", "points": 1, "cost": 1 },
+      "attunement": { "name": "Attunement", "feat": "arcane_soul", "cost": 1, "requires": ["spark"] },
+      "starfire": { "name": "Starfire", "attr": "mag", "points": 3, "cost": 2, "requires": ["attunement"] },
+      "warding": { "name": "Warding", "feat": "last_stand", "cost": 1, "requires": ["thin_blood"] },
+      "comet": { "name": "Comet", "feat": "arcane_soul", "cost": 2, "requires": ["starfire", "warding"] }
+    }
+  }
+}

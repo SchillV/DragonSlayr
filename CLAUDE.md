@@ -64,8 +64,10 @@ cmake --preset headless && cmake --build --preset headless && ctest --preset hea
 ## Roadmap (agreed next work, in order)
 
 Done: enemy variety (behaviors + weighted spawn tables), combat-feel pack, menu framework,
-generic content loader (`JsonReader` + `load_category`), stat/modifier layer
-(`src/sim/stats.hpp`, player `StatBlock`), items + synergies (`items.json` modifiers/hooks,
-pickups, `give` console cmd), levels & rooms (functional stairs with run persistence, per-floor
-scaling, arena/treasure room types). Next: **player classes** (cheap now: grant class-source
-modifiers at run start). See `docs/CONTENT.md` roadmap.
+generic content loader (`JsonReader` + `load_category`), stat/modifier layer with str/dex/vit/mag
+attributes (`src/sim/stats.hpp`), items + synergies (`items.json`), levels & rooms (stairs,
+per-floor scaling, room types), feats (`feats.json`, stackable modifier/hook bundles), classes
+(`classes.json` = attrs + feats + loadout, class-select screen), per-run skill trees
+(`skill_trees.json` DAGs, validated; procedural page on T/Pause; xp/levels via
+`sim/progression.*`). Next: **hub/meta-progression**, then **boss learning** (see
+`docs/CONTENT.md` roadmap).

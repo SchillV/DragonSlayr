@@ -35,6 +35,7 @@ struct EnemyDef {
     std::string sprite;             // texture name in assets/textures (no extension)
     glm::vec2 sprite_size{0.9f, 0.9f};
     int score = 50;
+    int xp = -1;               // experience on kill (-1 = derive as score/5 at load)
     float spawn_weight = 1.0f; // relative weight in spawn selection (0 = never auto-spawns)
     int min_floor = 1;         // earliest floor this enemy may appear on
     EnemyBehavior behavior = EnemyBehavior::Chaser;
@@ -126,6 +127,37 @@ struct ClassDef {
     std::vector<std::string> feats; // feat ids granted at run start
     std::string primary = "sword";
     std::string secondary = "bolt";
+    std::string tree; // skill tree id (falls back to the class id, then tree 0)
+};
+
+// One node in a skill tree: spend `cost` skill points to gain a feat stack
+// or attribute points. `prereqs`/`prereq_idx` encode the DAG edges; the
+// loader validates existence, acyclicity, and that each node grants exactly
+// one thing.
+struct SkillNodeDef {
+    std::string id;
+    std::string name;
+    std::string feat;            // grants one stack of this feat id, ...
+    StatId attr = StatId::Count; // ...or points in this attribute
+    int attr_points = 1;
+    int cost = 1;
+    std::vector<std::string> prereqs; // JSON "requires": node ids
+    std::vector<int> prereq_idx;      // resolved by the loader
+};
+
+struct SkillTreeDef {
+    std::string id;
+    std::string name;
+    std::vector<SkillNodeDef> nodes;
+
+    int find_node(std::string_view node_id) const {
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            if (nodes[i].id == node_id) {
+                return static_cast<int>(i);
+            }
+        }
+        return -1;
+    }
 };
 
 // Linear id lookup shared by every content category (rosters are small; a
@@ -148,12 +180,14 @@ struct ContentDB {
     std::vector<ItemDef> items;
     std::vector<FeatDef> feats;
     std::vector<ClassDef> classes;
+    std::vector<SkillTreeDef> skill_trees;
 
     int find_enemy(std::string_view id) const;
     int find_weapon(std::string_view id) const;
     int find_item(std::string_view id) const;
     int find_feat(std::string_view id) const;
     int find_class(std::string_view id) const;
+    int find_skill_tree(std::string_view id) const;
 
     // On failure: returns false, fills `error` (with the offending JSON key
     // path) and leaves the db unchanged.
@@ -167,6 +201,9 @@ struct ContentDB {
     bool load_feats(const std::filesystem::path& path, std::string* error = nullptr);
     bool load_classes_from_string(std::string_view json_text, std::string* error = nullptr);
     bool load_classes(const std::filesystem::path& path, std::string* error = nullptr);
+    // Load feats first: tree nodes referencing unknown feats are load errors.
+    bool load_skill_trees_from_string(std::string_view json_text, std::string* error = nullptr);
+    bool load_skill_trees(const std::filesystem::path& path, std::string* error = nullptr);
 };
 
 } // namespace ds

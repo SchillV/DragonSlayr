@@ -12,6 +12,7 @@
 #include "render/font.hpp"
 #include "game/profile.hpp"
 #include "game/skill_tree_ui.hpp"
+#include "game/stats_ui.hpp"
 #include "render/gpu_renderer.hpp"
 #include "render/texture_load.hpp"
 #include "sim/feats.hpp"
@@ -53,7 +54,7 @@ CVar& fx_hitmarker = cvar_register("fx.hitmarker", 1.0f, "hitmarker flashes (0 d
 CVar& snd_volume = cvar_register("snd.volume", 0.8f, "master volume, 0-1");
 
 // Which mode the windowed session is in; the sim only ticks while Playing.
-enum class GamePhase : uint8_t { Title, Hub, Playing, Paused, Dead, Tree };
+enum class GamePhase : uint8_t { Title, Hub, Playing, Paused, Dead, Tree, Stats };
 
 std::string upper_copy(std::string s) {
     for (char& c : s) {
@@ -628,16 +629,25 @@ int App::run_windowed(Platform& platform) {
     float applied_volume = -1.0f;
     glm::vec2 last_mouse_px{-1.0f, -1.0f};
     SkillTreeUi tree_ui;
+    StatsUi stats_ui;
     auto enter_playing = [&] {
         menu.close();
         tree_ui.close();
+        stats_ui.close();
         phase = GamePhase::Playing;
         SDL_SetWindowRelativeMouseMode(window, true);
     };
     auto open_menu = [&](MenuScreen s, GamePhase p) {
         menu.open(s);
         tree_ui.close();
+        stats_ui.close();
         phase = p;
+        SDL_SetWindowRelativeMouseMode(window, false);
+    };
+    auto open_stats = [&] {
+        menu.close();
+        phase = GamePhase::Stats;
+        stats_ui.open();
         SDL_SetWindowRelativeMouseMode(window, false);
     };
     auto open_tree = [&] {
@@ -707,7 +717,7 @@ int App::run_windowed(Platform& platform) {
                 cam_pitch = std::clamp(cam_pitch - ev.motion.yrel * sens, -kMaxPitch, kMaxPitch);
             } else if (ev.type == SDL_EVENT_KEY_DOWN && !ui_captured) {
                 const SDL_Keycode k = ev.key.key;
-                if (menu.active() || phase == GamePhase::Tree) {
+                if (menu.active() || phase == GamePhase::Tree || phase == GamePhase::Stats) {
                     menu_input.up |= k == SDLK_UP || k == SDLK_W;
                     menu_input.down |= k == SDLK_DOWN || k == SDLK_S;
                     menu_input.left |= k == SDLK_LEFT || k == SDLK_A;
@@ -719,6 +729,8 @@ int App::run_windowed(Platform& platform) {
                         open_menu(MenuScreen::Pause, GamePhase::Paused);
                     } else if (k == SDLK_T) {
                         open_tree();
+                    } else if (k == SDLK_C) {
+                        open_stats();
                     }
                 }
             } else if (ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
@@ -783,8 +795,8 @@ int App::run_windowed(Platform& platform) {
             audio.set_volume(applied_volume);
         }
 
-        // Menu / tree-page navigation, mouse hit-testing and action dispatch.
-        if (menu.active() || phase == GamePhase::Tree) {
+        // Menu / overlay-page navigation, mouse hit-testing and action dispatch.
+        if (menu.active() || phase == GamePhase::Tree || phase == GamePhase::Stats) {
             int pw = 0, ph = 0;
             SDL_GetWindowSizeInPixels(window, &pw, &ph);
             const glm::vec2 mvp{static_cast<float>(pw), static_cast<float>(ph)};
@@ -879,12 +891,20 @@ int App::run_windowed(Platform& platform) {
                 case MenuAction::OpenTree:
                     open_tree();
                     break;
+                case MenuAction::OpenStats:
+                    open_stats();
+                    break;
                 case MenuAction::None:
                     break;
                 }
-            } else {
+            } else if (phase == GamePhase::Tree) {
                 tree_ui.update(world, menu_input, mvp);
                 if (tree_ui.close_requested()) {
+                    enter_playing();
+                }
+            } else if (phase == GamePhase::Stats) {
+                stats_ui.update(menu_input);
+                if (stats_ui.close_requested()) {
                     enter_playing();
                 }
             }
@@ -1145,6 +1165,11 @@ int App::run_windowed(Platform& platform) {
         }
         if (tree_ui.active()) {
             tree_ui.render(view, font, world);
+        }
+        if (stats_ui.active()) {
+            int pw = 0, ph = 0;
+            SDL_GetWindowSizeInPixels(window, &pw, &ph);
+            stats_ui.render(view, font, world, {static_cast<float>(pw), static_cast<float>(ph)});
         }
         renderer.render(view);
 

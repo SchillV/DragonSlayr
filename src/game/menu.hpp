@@ -38,6 +38,7 @@ enum class MenuAction : uint8_t {
     QuitGame,
     SelectClass, // read the choice with chosen_payload()
     OpenTree,    // the skill-tree page (owned by the app, not MenuSystem)
+    OpenStats,   // the character sheet (likewise app-owned)
     NewGameSlot, // chosen_payload() = slot
     LoadSlot,    // chosen_payload() = slot
     BuyUpgrade,  // chosen_payload() = ContentDB::upgrades index

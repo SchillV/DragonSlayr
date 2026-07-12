@@ -246,6 +246,7 @@ void MenuSystem::rebuild_items() {
     case MenuScreen::Pause:
         items_.push_back(button("RESUME", MenuAction::Resume));
         items_.push_back(button("SKILL TREE", MenuAction::OpenTree));
+        items_.push_back(button("CHARACTER", MenuAction::OpenStats));
         items_.push_back(button("RESTART RUN", MenuAction::Restart));
         items_.push_back(submenu("OPTIONS", MenuScreen::Settings));
         // Suspends the run: RESUME DESCENT at the camp picks it back up.

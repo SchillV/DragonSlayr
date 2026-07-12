@@ -10,6 +10,7 @@
 #include "render/debug_ui.hpp"
 #include "render/dungeon_mesh.hpp"
 #include "render/font.hpp"
+#include "game/intro.hpp"
 #include "game/profile.hpp"
 #include "game/skill_tree_ui.hpp"
 #include "game/stats_ui.hpp"
@@ -53,8 +54,9 @@ CVar& fx_lowhp = cvar_register("fx.lowhp_threshold", 0.3f, "low-health warning t
 CVar& fx_hitmarker = cvar_register("fx.hitmarker", 1.0f, "hitmarker flashes (0 disables)");
 CVar& snd_volume = cvar_register("snd.volume", 0.8f, "master volume, 0-1");
 
-// Which mode the windowed session is in; the sim only ticks while Playing.
-enum class GamePhase : uint8_t { Title, Hub, Playing, Paused, Dead, Tree, Stats };
+// Which mode the windowed session is in; the sim only ticks while Playing
+// (and during the playable intro).
+enum class GamePhase : uint8_t { Title, Hub, Playing, Paused, Dead, Tree, Stats, Intro };
 
 std::string upper_copy(std::string s) {
     for (char& c : s) {
@@ -306,6 +308,35 @@ bool sim_state_valid(const World& world) {
 
 } // namespace
 
+// "THE DUNGEON BINDS YOU" card at the end of the intro. `t` in seconds.
+void render_binding_card(FrameView& view, const FontAtlas& font, glm::vec2 vp, float t) {
+    const float scale = std::max(1.0f, std::round(vp.y / 360.0f));
+    const float fade = std::min(t / 0.6f, 1.0f);
+
+    OverlayQuad dim;
+    dim.pos = {0.0f, 0.0f};
+    dim.size = vp;
+    dim.layer = 0.0f;
+    dim.color = {0.01f, 0.005f, 0.0f, 0.88f * fade};
+    view.overlay.push_back(dim);
+
+    const std::string title = "THE DUNGEON BINDS YOU";
+    const float ts = 3.0f * scale;
+    const glm::vec2 tsize = measure_text(font, title, ts, 1.0f);
+    emit_text(view.overlay_text, font, title,
+              {(vp.x - tsize.x) * 0.5f, vp.y * 0.42f}, ts,
+              {0.878f, 0.282f, 0.122f, fade}, 1.0f);
+
+    if (t > 1.0f) {
+        const float sub_fade = std::min((t - 1.0f) / 0.6f, 1.0f);
+        const std::string sub = "THERE IS NO LEAVING · ONLY DOWN";
+        const glm::vec2 ssize = measure_text(font, sub, scale, 2.0f);
+        emit_text(view.overlay_text, font, sub,
+                  {(vp.x - ssize.x) * 0.5f, vp.y * 0.42f + ts * 3.2f}, scale,
+                  {0.906f, 0.847f, 0.722f, 0.9f * sub_fade}, 2.0f);
+    }
+}
+
 std::filesystem::path profiles_dir_default() {
     if (char* pref = SDL_GetPrefPath("schillv", "DragonSlayr")) {
         std::filesystem::path dir = std::filesystem::path(pref) / "profiles";
@@ -510,7 +541,9 @@ int App::run_windowed(Platform& platform) {
     const std::filesystem::path profiles_dir = profiles_dir_default();
     Profile profile;
     bool run_suspended = false;
-    bool death_recorded = false; // records/embers written for this death
+    bool death_recorded = false;  // records/embers written for this death
+    bool intro_binding = false;   // the binding card is up
+    double intro_card_t = 0.0;
 
     // Combat-feedback state: render-side only, fed by the telemetry stream.
     std::vector<DamageIndicator> fx_indicators;
@@ -693,6 +726,35 @@ int App::run_windowed(Platform& platform) {
                                          profile.embers, profile.records.runs,
                                          profile.records.best_floor));
     };
+    auto start_intro = [&] {
+        menu.close();
+        world.selected_class = pending_class;
+        run_suspended = false;
+        death_recorded = false;
+        run_recorded = true; // the intro never writes a telemetry run
+        world.init_from_dungeon(intro_approach_map(), 0x13270ULL);
+        renderer.set_dungeon_mesh(build_dungeon_mesh(world.map()));
+        cam_yaw = 0.0f;
+        cam_pitch = 0.0f;
+        telem_cursor = 0;
+        was_dead = false;
+        fx_indicators.clear();
+        fx_hitmarker_t = 0.0f;
+        fx_kick = {0.0f, 0.0f};
+        fx_chip_hp = world.reg.get<Health>(world.player).hp;
+        fx_chip_delay = 0.0f;
+        fx_heartbeat_timer = 0.0;
+        intro_binding = false;
+        intro_card_t = 0.0;
+        phase = GamePhase::Intro;
+        SDL_SetWindowRelativeMouseMode(window, true);
+    };
+    auto finish_intro = [&] {
+        profile.intro_done = true;
+        save_profile(profiles_dir, profile);
+        intro_binding = false;
+        open_hub();
+    };
     rebuild_slot_rosters();
     open_menu(MenuScreen::Title, GamePhase::Title);
 
@@ -724,6 +786,10 @@ int App::run_windowed(Platform& platform) {
                     menu_input.right |= k == SDLK_RIGHT || k == SDLK_D;
                     menu_input.select |= k == SDLK_RETURN || k == SDLK_SPACE;
                     menu_input.back |= k == SDLK_ESCAPE;
+                } else if (phase == GamePhase::Intro) {
+                    // Esc skips the walk; Enter dismisses the binding card.
+                    menu_input.back |= k == SDLK_ESCAPE;
+                    menu_input.select |= k == SDLK_RETURN || k == SDLK_SPACE;
                 } else if (phase == GamePhase::Playing) {
                     if (k == SDLK_ESCAPE) {
                         open_menu(MenuScreen::Pause, GamePhase::Paused);
@@ -854,7 +920,11 @@ int App::run_windowed(Platform& platform) {
                     save_profile(profiles_dir, profile);
                     rebuild_slot_rosters();
                     run_suspended = false;
-                    open_hub(); // the intro milestone routes here instead
+                    if (profile.intro_done) {
+                        open_hub();
+                    } else {
+                        start_intro(); // fresh fates approach the cave first
+                    }
                     break;
                 }
                 case MenuAction::LoadSlot: {
@@ -910,14 +980,38 @@ int App::run_windowed(Platform& platform) {
             }
         }
 
-        // The simulation only advances while actively playing.
-        if (phase == GamePhase::Playing) {
+        // The simulation advances while actively playing (and during the
+        // playable intro, until the binding card freezes it).
+        const bool simulating = phase == GamePhase::Playing ||
+                                (phase == GamePhase::Intro && !intro_binding);
+        if (simulating) {
             acc += frame_dt;
             while (acc >= kTickDt) {
                 const PlayerCmd cmd = input.make_cmd(cam_yaw, cam_pitch);
                 world.tick(cmd, static_cast<float>(kTickDt));
                 acc -= kTickDt;
             }
+        } else if (phase != GamePhase::Intro) {
+            acc = 0.0;
+        }
+        if (phase == GamePhase::Intro) {
+            if (intro_binding) {
+                intro_card_t += frame_dt;
+                if (intro_card_t >= 3.6 || (intro_card_t > 0.8 && menu_input.select)) {
+                    finish_intro();
+                }
+            } else if (menu_input.back) {
+                finish_intro(); // Esc skips the walk entirely
+            } else if (world.floor_exit_requested || world.player_dead) {
+                // Reaching the cave mouth — or falling to the guards — binds
+                // the hero all the same.
+                world.floor_exit_requested = false;
+                intro_binding = true;
+                intro_card_t = 0.0;
+                audio.play("levelup");
+            }
+        }
+        if (phase == GamePhase::Playing) {
             if (world.floor_exit_requested) {
                 world.floor_exit_requested = false;
                 GenParams fp;
@@ -950,8 +1044,6 @@ int App::run_windowed(Platform& platform) {
                                                  world.score, world.current_floor,
                                                  embers_gained));
             }
-        } else {
-            acc = 0.0;
         }
 
         // Sounds and combat feedback both ride the telemetry stream — one
@@ -1170,6 +1262,12 @@ int App::run_windowed(Platform& platform) {
             int pw = 0, ph = 0;
             SDL_GetWindowSizeInPixels(window, &pw, &ph);
             stats_ui.render(view, font, world, {static_cast<float>(pw), static_cast<float>(ph)});
+        }
+        if (intro_binding) {
+            int pw = 0, ph = 0;
+            SDL_GetWindowSizeInPixels(window, &pw, &ph);
+            render_binding_card(view, font, {static_cast<float>(pw), static_cast<float>(ph)},
+                                static_cast<float>(intro_card_t));
         }
         renderer.render(view);
 

@@ -57,6 +57,7 @@ add_executable(dragonslayr
   src/game/skill_tree_ui.cpp
   src/game/stats_ui.cpp
   src/game/profile.cpp
+  src/game/intro.cpp
   src/platform/platform.cpp
   src/platform/input.cpp
   src/platform/audio.cpp
@@ -110,6 +111,7 @@ add_executable(ds_tests
   tests/test_skilltree.cpp
   tests/test_profile.cpp
   tests/test_stats_ui.cpp
+  tests/test_intro.cpp
   src/render/texture_load.cpp
   src/render/dungeon_mesh.cpp
   src/render/font.cpp
@@ -118,6 +120,7 @@ add_executable(ds_tests
   src/game/skill_tree_ui.cpp
   src/game/stats_ui.cpp
   src/game/profile.cpp
+  src/game/intro.cpp
 )
 target_link_libraries(ds_tests PRIVATE ds_warnings ds_sim ds_stb doctest::doctest)
 

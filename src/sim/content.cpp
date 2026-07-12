@@ -260,20 +260,17 @@ void parse_stat_ref(JsonReader& r, StatId& stat, Modifier::Op& op) {
     r.enum_of("op", op, {{"add", Modifier::Op::Add}, {"mult", Modifier::Op::Mult}});
 }
 
-void parse_item(JsonReader& r, ItemDef& out) {
-    r.opt_s("name", out.name);
-    r.req_s("sprite", out.sprite);
-    r.opt_vec2("sprite_size", out.sprite_size);
-    r.opt_f("spawn_weight", out.spawn_weight);
-    r.opt_i("min_floor", out.min_floor);
-
+// Modifier/hook lists are shared vocabulary between items and feats.
+void parse_modifier_list(JsonReader& r, std::vector<ItemModifierDef>& out) {
     r.arr("modifiers", [&out](JsonReader& m) {
         ItemModifierDef def;
         parse_stat_ref(m, def.stat, def.op);
         m.req_f("value", def.value);
-        out.modifiers.push_back(def);
+        out.push_back(def);
     });
+}
 
+void parse_hook_list(JsonReader& r, std::vector<ItemHookDef>& out) {
     r.arr("hooks", [&out](JsonReader& h) {
         ItemHookDef def;
         h.enum_of("on", def.on,
@@ -294,8 +291,27 @@ void parse_item(JsonReader& r, ItemDef& out) {
             parse_stat_ref(h, def.stat, def.op);
             h.req_f("value", def.value);
         }
-        out.hooks.push_back(def);
+        out.push_back(def);
     });
+}
+
+void parse_item(JsonReader& r, ItemDef& out) {
+    r.opt_s("name", out.name);
+    r.req_s("sprite", out.sprite);
+    r.opt_vec2("sprite_size", out.sprite_size);
+    r.opt_f("spawn_weight", out.spawn_weight);
+    r.opt_i("min_floor", out.min_floor);
+    parse_modifier_list(r, out.modifiers);
+    parse_hook_list(r, out.hooks);
+}
+
+void parse_feat(JsonReader& r, FeatDef& out) {
+    r.opt_s("name", out.name);
+    r.opt_s("desc", out.desc);
+    r.opt_s("sprite", out.sprite);
+    r.opt_i("max_stacks", out.max_stacks);
+    parse_modifier_list(r, out.modifiers);
+    parse_hook_list(r, out.hooks);
 }
 
 void parse_weapon(JsonReader& r, WeaponDef& out) {
@@ -334,6 +350,10 @@ int ContentDB::find_item(std::string_view id) const {
     return find_by_id(items, id);
 }
 
+int ContentDB::find_feat(std::string_view id) const {
+    return find_by_id(feats, id);
+}
+
 bool ContentDB::load_enemies_from_string(std::string_view json_text, std::string* error) {
     return load_category(json_text, "enemies", enemies, parse_enemy, error);
 }
@@ -359,6 +379,15 @@ bool ContentDB::load_items_from_string(std::string_view json_text, std::string* 
 bool ContentDB::load_items(const std::filesystem::path& path, std::string* error) {
     std::string text;
     return load_category_file(path, text, error) && load_items_from_string(text, error);
+}
+
+bool ContentDB::load_feats_from_string(std::string_view json_text, std::string* error) {
+    return load_category(json_text, "feats", feats, parse_feat, error);
+}
+
+bool ContentDB::load_feats(const std::filesystem::path& path, std::string* error) {
+    std::string text;
+    return load_category_file(path, text, error) && load_feats_from_string(text, error);
 }
 
 } // namespace ds

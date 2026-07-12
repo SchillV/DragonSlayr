@@ -73,6 +73,16 @@ struct Inventory {
     std::vector<uint16_t> items;
 };
 
+// Active feats with stack counts (ContentDB::feats indices). Modifiers apply
+// per stack and hooks fire per stack.
+struct FeatSet {
+    struct Entry {
+        uint16_t feat = 0;
+        uint8_t count = 0;
+    };
+    std::vector<Entry> entries;
+};
+
 // Live temp_stat effects. Each entry owns a unique source token in the
 // reserved kTempSourceBase+ range so expiry removes exactly its modifier.
 struct TempMods {

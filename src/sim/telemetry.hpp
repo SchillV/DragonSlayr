@@ -27,6 +27,7 @@ enum class EvType : uint8_t {
     EnemyKilled,      // def = enemy, a = weapon def index, b = seconds alive
     ItemPickup,       // def = item
     FloorAdvance,     // a = the floor arrived at
+    FeatGained,       // def = feat, a = stack count after
 };
 
 struct TelemetryEvent {

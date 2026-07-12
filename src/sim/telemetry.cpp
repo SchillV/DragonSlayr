@@ -27,6 +27,7 @@ const char* type_name(EvType t) {
     case EvType::EnemyKilled: return "enemy_killed";
     case EvType::ItemPickup: return "item_pickup";
     case EvType::FloorAdvance: return "floor_advance";
+    case EvType::FeatGained: return "feat_gained";
     }
     return "unknown";
 }
@@ -167,6 +168,11 @@ std::filesystem::path TelemetryRecorder::write_json(const std::filesystem::path&
             break;
         case EvType::FloorAdvance:
             e["floor"] = static_cast<int>(ev.a);
+            break;
+        case EvType::FeatGained:
+            e["feat"] = ev.def < content.feats.size() ? content.feats[ev.def].id
+                                                      : std::format("#{}", ev.def);
+            e["stacks"] = static_cast<int>(ev.a);
             break;
         case EvType::RunStart:
         case EvType::RunEnd:

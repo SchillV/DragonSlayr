@@ -182,6 +182,27 @@ the console grants directly. Hooks dispatch from combat (`items_dispatch`), re-e
 one level of chaining so an AoE-kill cascade can't hang the sim. New effects/triggers are enum
 values + one `apply_hook` case in `src/sim/items.cpp`; everything else is data.
 
+## Adding a feat — `assets/data/feats.json`
+
+A feat is the item shape minus the world pickup: the same `modifiers` + `hooks` vocabulary,
+granted by classes, skill trees, or `give_feat <id>` in the console, and shown as chips in the
+HUD's bottom bar. Feats **stack** (`"max_stacks": 3`, `0` = unlimited; default 1): modifiers
+apply per stack and hooks fire per stack, so `BLOODLUST x2` gives a 1.2 x 1.2 speed burst.
+
+```json
+"bloodlust": {
+  "name": "Bloodlust",
+  "desc": "Kills quicken your step.",
+  "max_stacks": 3,
+  "hooks": [ { "on": "on_kill", "effect": "temp_stat",
+               "stat": "move_speed_mult", "op": "mult", "value": 1.2, "duration_s": 3 } ]
+}
+```
+
+Grant/removal flows through `src/sim/feats.{hpp,cpp}` (`grant_feat` / `remove_feat`, modifier
+source = `kFeatSourceBase + index`); feats survive stairs, remap on hot reload, and record
+`feat_gained` telemetry.
+
 ---
 
 ## Roadmap

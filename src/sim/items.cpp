@@ -57,15 +57,25 @@ void items_dispatch(World& world, ItemHookDef::Trigger trigger, const HookCtx& c
     if (world.hook_depth >= 2 || world.player_dead) {
         return;
     }
-    const auto* inv = world.reg.try_get<Inventory>(world.player);
-    if (!inv) {
-        return;
-    }
     ++world.hook_depth;
-    for (const uint16_t item : inv->items) {
-        for (const ItemHookDef& hook : world.content.items[item].hooks) {
-            if (hook.on == trigger) {
-                apply_hook(world, hook, ctx);
+    if (const auto* inv = world.reg.try_get<Inventory>(world.player)) {
+        for (const uint16_t item : inv->items) {
+            for (const ItemHookDef& hook : world.content.items[item].hooks) {
+                if (hook.on == trigger) {
+                    apply_hook(world, hook, ctx);
+                }
+            }
+        }
+    }
+    // Feats share the hook vocabulary; each stack fires.
+    if (const auto* feats = world.reg.try_get<FeatSet>(world.player)) {
+        for (const FeatSet::Entry& entry : feats->entries) {
+            for (const ItemHookDef& hook : world.content.feats[entry.feat].hooks) {
+                if (hook.on == trigger) {
+                    for (int s = 0; s < entry.count; ++s) {
+                        apply_hook(world, hook, ctx);
+                    }
+                }
             }
         }
     }

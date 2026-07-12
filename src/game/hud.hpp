@@ -21,6 +21,12 @@ struct DamageIndicator {
     float t = 0.0f;           // 1 -> 0 over its lifetime
 };
 
+// An active feat shown in the HUD's bottom bar ("BLOODLUST x3").
+struct FeatChip {
+    const char* name = "";
+    int count = 1;
+};
+
 struct HudState {
     float hp = 100.0f;
     float max_hp = 100.0f;
@@ -39,6 +45,7 @@ struct HudState {
     bool hitmarker_kill = false;  // kill-confirm variant (bigger, red)
     float lowhp_threshold = 0.3f; // fraction of max hp where the warning starts
     std::span<const DamageIndicator> indicators;
+    std::span<const FeatChip> feats;
 };
 
 // Screen rotation of a damage wedge: 0 = the hit came from straight ahead

@@ -5,6 +5,7 @@
 #include <glm/gtc/constants.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <format>
 
@@ -170,6 +171,37 @@ void build_hud(FrameView& view, const HudState& state, glm::vec2 vp, const FontA
             emit_text(view.overlay_text, *font, hp_text,
                       {pos.x + size.x + 8.0f * scale, pos.y + (size.y - tsize.y) * 0.5f}, ts,
                       {0.95f, 0.92f, 0.82f, 0.95f});
+        }
+    }
+
+    // Active feats, bottom-right: diamond + "NAME xN" chips per the design's
+    // bottom bar, laid right-to-left.
+    if (font && font->valid() && !state.feats.empty()) {
+        float x = vp.x - 14.0f * scale;
+        const float y = vp.y - 24.0f * scale;
+        const size_t shown = std::min(state.feats.size(), size_t{6});
+        for (size_t i = 0; i < shown; ++i) {
+            const FeatChip& chip = state.feats[i];
+            std::string label = chip.name;
+            for (char& c : label) {
+                c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+            }
+            if (chip.count > 1) {
+                label += std::format(" x{}", chip.count);
+            }
+            const glm::vec2 tsize = measure_text(*font, label, scale, 1.0f);
+            x -= tsize.x;
+            emit_text(view.overlay_text, *font, label, {x, y}, scale,
+                      {0.79f, 0.64f, 0.29f, 0.9f}, 1.0f);
+            const float d = 4.0f * scale;
+            OverlayQuad q;
+            q.pos = {x - 8.0f * scale, y + (tsize.y - d) * 0.5f - scale};
+            q.size = {d, d};
+            q.rot = glm::quarter_pi<float>();
+            q.layer = kOverlayWhite;
+            q.color = {0.88f, 0.28f, 0.12f, 0.9f};
+            view.overlay.push_back(q);
+            x -= 22.0f * scale; // diamond + gap before the next chip
         }
     }
 

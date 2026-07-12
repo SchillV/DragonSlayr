@@ -12,6 +12,7 @@
 #include "render/font.hpp"
 #include "render/gpu_renderer.hpp"
 #include "render/texture_load.hpp"
+#include "sim/feats.hpp"
 #include "sim/items.hpp"
 #include "sim/bot.hpp"
 #include "sim/components.hpp"
@@ -186,6 +187,12 @@ void load_content(World& world, const std::filesystem::path& data_dir) {
         log_warn("item content unavailable: {}", error);
     } else {
         log_info("loaded {} item defs", world.content.items.size());
+    }
+    error.clear();
+    if (!world.content.load_feats(data_dir / "feats.json", &error)) {
+        log_warn("feat content unavailable: {}", error);
+    } else {
+        log_info("loaded {} feat defs", world.content.feats.size());
     }
 }
 
@@ -443,9 +450,11 @@ int App::run_windowed(Platform& platform) {
 
     const std::filesystem::path enemies_path = asset_root / "data" / "enemies.json";
     const std::filesystem::path items_path = asset_root / "data" / "items.json";
+    const std::filesystem::path feats_path = asset_root / "data" / "feats.json";
     std::error_code mtime_ec;
     auto enemies_mtime = std::filesystem::last_write_time(enemies_path, mtime_ec);
     auto items_mtime = std::filesystem::last_write_time(items_path, mtime_ec);
+    auto feats_mtime = std::filesystem::last_write_time(feats_path, mtime_ec);
     double reload_poll_timer = 0.0;
 
     uint64_t seed = cfg_.seed;
@@ -529,6 +538,23 @@ int App::run_windowed(Platform& platform) {
                      }
                      grant_item(world, idx);
                      fb = std::format("granted {}", world.content.items[static_cast<size_t>(idx)].name);
+                 });
+    con_register("give_feat", "grant one stack of a feat by id: give_feat <feat_id>",
+                 [&](std::span<const std::string_view> args, std::string& fb) {
+                     if (args.empty()) {
+                         fb = "usage: give_feat <feat_id>";
+                         return;
+                     }
+                     const int idx = world.content.find_feat(args[0]);
+                     if (idx < 0) {
+                         fb = std::format("unknown feat '{}'", args[0]);
+                         return;
+                     }
+                     const int stacks = grant_feat(world, idx);
+                     fb = stacks > 0 ? std::format("{} x{}",
+                                                   world.content.feats[static_cast<size_t>(idx)].name,
+                                                   stacks)
+                                     : "already at max stacks";
                  });
 
     // Menu / phase state. The game boots onto the Title screen over a live
@@ -627,6 +653,11 @@ int App::run_windowed(Platform& platform) {
             if (!ec && mtime != items_mtime) {
                 items_mtime = mtime;
                 reload_file(items_path, &ContentDB::load_items);
+            }
+            mtime = std::filesystem::last_write_time(feats_path, ec);
+            if (!ec && mtime != feats_mtime) {
+                feats_mtime = mtime;
+                reload_file(feats_path, &ContentDB::load_feats);
             }
         }
 
@@ -883,6 +914,13 @@ int App::run_windowed(Platform& platform) {
             hud.hitmarker_kill = fx_hitmarker_kill;
             hud.lowhp_threshold = std::clamp(fx_lowhp.value, 0.0f, 1.0f);
             hud.indicators = fx_indicators;
+            std::vector<FeatChip> chips;
+            if (const auto* fs = world.reg.try_get<FeatSet>(world.player)) {
+                for (const FeatSet::Entry& entry : fs->entries) {
+                    chips.push_back({world.content.feats[entry.feat].name.c_str(), entry.count});
+                }
+            }
+            hud.feats = chips;
             int pw = 0, ph = 0;
             SDL_GetWindowSizeInPixels(window, &pw, &ph);
             if (phase != GamePhase::Title) { // no gameplay HUD behind the title

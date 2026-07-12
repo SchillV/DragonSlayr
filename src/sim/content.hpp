@@ -98,6 +98,19 @@ struct ItemDef {
     std::vector<ItemHookDef> hooks;
 };
 
+// A feat is the item shape minus the world pickup: passive modifiers plus
+// reactive hooks, granted by classes, skill trees, or the console. Feats can
+// stack ("BLOODLUST x3"): modifiers apply per stack and hooks fire per stack.
+struct FeatDef {
+    std::string id;
+    std::string name;
+    std::string desc;   // one-liner for menus/tooltips
+    std::string sprite; // optional chip icon
+    int max_stacks = 1; // 0 = unlimited
+    std::vector<ItemModifierDef> modifiers;
+    std::vector<ItemHookDef> hooks;
+};
+
 // Linear id lookup shared by every content category (rosters are small; a
 // hash map would be overkill and would hurt hot-reload index stability).
 template <typename Def>
@@ -116,10 +129,12 @@ struct ContentDB {
     std::vector<EnemyDef> enemies;
     std::vector<WeaponDef> weapons;
     std::vector<ItemDef> items;
+    std::vector<FeatDef> feats;
 
     int find_enemy(std::string_view id) const;
     int find_weapon(std::string_view id) const;
     int find_item(std::string_view id) const;
+    int find_feat(std::string_view id) const;
 
     // On failure: returns false, fills `error` (with the offending JSON key
     // path) and leaves the db unchanged.
@@ -129,6 +144,8 @@ struct ContentDB {
     bool load_weapons(const std::filesystem::path& path, std::string* error = nullptr);
     bool load_items_from_string(std::string_view json_text, std::string* error = nullptr);
     bool load_items(const std::filesystem::path& path, std::string* error = nullptr);
+    bool load_feats_from_string(std::string_view json_text, std::string* error = nullptr);
+    bool load_feats(const std::filesystem::path& path, std::string* error = nullptr);
 };
 
 } // namespace ds

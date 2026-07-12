@@ -1,0 +1,64 @@
+{
+  "bloodlust": {
+    "name": "Bloodlust",
+    "desc": "Kills quicken your step.",
+    "max_stacks": 3,
+    "hooks": [
+      {
+        "on": "on_kill",
+        "effect": "temp_stat",
+        "stat": "move_speed_mult",
+        "op": "mult",
+        "value": 1.2,
+        "duration_s": 3.0
+      }
+    ]
+  },
+  "berserk": {
+    "name": "Berserk",
+    "desc": "Kills sharpen the blade.",
+    "max_stacks": 2,
+    "hooks": [
+      {
+        "on": "on_kill",
+        "effect": "temp_stat",
+        "stat": "melee_damage_mult",
+        "op": "mult",
+        "value": 1.2,
+        "duration_s": 4.0
+      }
+    ]
+  },
+  "last_stand": {
+    "name": "Last Stand",
+    "desc": "A brief guard whenever you are struck.",
+    "hooks": [
+      {
+        "on": "on_damaged",
+        "effect": "temp_stat",
+        "stat": "defense_pct",
+        "op": "add",
+        "value": 0.2,
+        "duration_s": 2.0
+      }
+    ]
+  },
+  "wyrm_blood": {
+    "name": "Wyrm Blood",
+    "desc": "Thick, stubborn vitality.",
+    "max_stacks": 5,
+    "modifiers": [ { "stat": "vit", "op": "add", "value": 2 } ]
+  },
+  "keen_eye": {
+    "name": "Keen Eye",
+    "desc": "Swift hands, swifter feet.",
+    "max_stacks": 5,
+    "modifiers": [ { "stat": "dex", "op": "add", "value": 2 } ]
+  },
+  "arcane_soul": {
+    "name": "Arcane Soul",
+    "desc": "The bolt answers eagerly.",
+    "max_stacks": 5,
+    "modifiers": [ { "stat": "mag", "op": "add", "value": 2 } ]
+  }
+}

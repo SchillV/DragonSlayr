@@ -64,6 +64,10 @@ void World::advance_floor(DungeonResult d) {
     if (auto* inv = reg.try_get<Inventory>(player)) {
         carried_inv = std::move(*inv);
     }
+    FeatSet carried_feats;
+    if (auto* feats = reg.try_get<FeatSet>(player)) {
+        carried_feats = std::move(*feats);
+    }
     // Temp buffs die at the stairs (their TempMods bookkeeping is per-floor).
     std::erase_if(carried_stats.mods,
                   [](const Modifier& m) { return m.source >= kTempSourceBase; });
@@ -72,6 +76,7 @@ void World::advance_floor(DungeonResult d) {
     setup_floor(std::move(d));
 
     reg.emplace_or_replace<Inventory>(player, std::move(carried_inv));
+    reg.emplace_or_replace<FeatSet>(player, std::move(carried_feats));
     auto& stats = reg.get<StatBlock>(player);
     stats = std::move(carried_stats);
     stats.recompute();
@@ -226,33 +231,52 @@ void World::apply_content(ContentDB new_content) {
         reg.destroy(e);
     }
 
-    // Held items: remap indices by id and keep StatBlock modifier sources in
-    // step (they store the item index); modifiers from removed defs go away.
-    // Each modifier is rewritten exactly once from its OLD value in a single
-    // pass, so swapped indices (0<->1) can't cascade.
-    if (auto* inv = reg.try_get<Inventory>(player)) {
+    // Held items and feats: remap indices by id and keep StatBlock modifier
+    // sources in step; modifiers from removed defs go away. Each modifier is
+    // rewritten exactly once from its OLD value in a single pass over one
+    // combined remap table, so swapped indices (0<->1) can't cascade.
+    {
         constexpr uint16_t kGone = 0xfffe;
-        auto& stats = reg.get<StatBlock>(player);
-        std::vector<uint16_t> kept;
-        std::vector<std::pair<uint16_t, uint16_t>> remap; // old item idx -> new (kGone = removed)
-        for (const uint16_t old_idx : inv->items) {
-            const int idx = new_content.find_item(content.items[old_idx].id);
-            remap.emplace_back(old_idx, idx < 0 ? kGone : static_cast<uint16_t>(idx));
-            if (idx >= 0) {
-                kept.push_back(static_cast<uint16_t>(idx));
-            }
-        }
-        for (Modifier& m : stats.mods) {
-            for (const auto& [from, to] : remap) {
-                if (m.source == from) {
-                    m.source = to;
-                    break;
+        std::vector<std::pair<uint16_t, uint16_t>> remap; // old source -> new (kGone = removed)
+
+        if (auto* inv = reg.try_get<Inventory>(player)) {
+            std::vector<uint16_t> kept;
+            for (const uint16_t old_idx : inv->items) {
+                const int idx = new_content.find_item(content.items[old_idx].id);
+                remap.emplace_back(old_idx, idx < 0 ? kGone : static_cast<uint16_t>(idx));
+                if (idx >= 0) {
+                    kept.push_back(static_cast<uint16_t>(idx));
                 }
             }
+            inv->items = std::move(kept);
         }
-        std::erase_if(stats.mods, [](const Modifier& m) { return m.source == kGone; });
-        inv->items = std::move(kept);
-        refresh_player_stats();
+        if (auto* feats = reg.try_get<FeatSet>(player)) {
+            std::vector<FeatSet::Entry> kept;
+            for (const FeatSet::Entry& entry : feats->entries) {
+                const int idx = new_content.find_feat(content.feats[entry.feat].id);
+                remap.emplace_back(static_cast<uint16_t>(kFeatSourceBase + entry.feat),
+                                   idx < 0 ? kGone
+                                           : static_cast<uint16_t>(kFeatSourceBase + idx));
+                if (idx >= 0) {
+                    kept.push_back({static_cast<uint16_t>(idx), entry.count});
+                }
+            }
+            feats->entries = std::move(kept);
+        }
+
+        if (!remap.empty()) {
+            auto& stats = reg.get<StatBlock>(player);
+            for (Modifier& m : stats.mods) {
+                for (const auto& [from, to] : remap) {
+                    if (m.source == from) {
+                        m.source = to;
+                        break;
+                    }
+                }
+            }
+            std::erase_if(stats.mods, [](const Modifier& m) { return m.source == kGone; });
+            refresh_player_stats();
+        }
     }
 
     content = std::move(new_content);
